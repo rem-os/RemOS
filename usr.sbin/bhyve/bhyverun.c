@@ -1073,21 +1073,46 @@ spinup_vcpu(struct vmctx *ctx, int vcpu)
 	fbsdrun_addcpu(ctx, BSP, vcpu, rip);
 }
 
-static void
+static bool
 parse_config_option(const char *option)
 {
 	const char *value;
 	char *path;
 
 	value = strchr(option, '=');
-	if (value == NULL || value[1] == '\0') {
-		warn("Invalid configuration option \"%s\"", option);
-		return;
-	}
+	if (value == NULL || value[1] == '\0')
+		return (false);
 	path = strndup(option, value - option);
 	if (path == NULL)
 		err(4, "Failed to allocate memory");
 	set_config_value_path(path, value + 1);
+	return (true);
+}
+
+static void
+parse_simple_config_file(const char *path)
+{
+	FILE *fp;
+	char *line, *cp;
+	size_t linecap;
+	unsigned int lineno;
+
+	fp = fopen(path, "r");
+	if (fp == NULL)
+		err(4, "Failed to open configuration file %s", path);
+	line = NULL;
+	linecap = 0;
+	lineno = 1;
+	for (lineno = 1; getline(&line, &linecap, fp) > 0; lineno++) {
+		cp = strchr(line, '\n');
+		if (cp != NULL)
+			*cp = '\0';
+		if (!parse_config_option(line))
+			err(4, "%s line %u: invalid config option '%s'", path,
+			    lineno, line);
+	}
+	free(line);
+	fclose(fp);
 }
 
 static void
@@ -1132,9 +1157,9 @@ main(int argc, char *argv[])
 	memflags = 0;
 
 #ifdef BHYVE_SNAPSHOT
-	optstr = "abehuwxACDHIPSWYo:p:g:G:c:s:m:l:U:r:";
+	optstr = "abehuwxACDHIPSWYf:o:p:g:G:c:s:m:l:U:r:";
 #else
-	optstr = "abehuwxACDHIPSWYo:p:g:G:c:s:m:l:U:";
+	optstr = "abehuwxACDHIPSWYf:o:p:g:G:c:s:m:l:U:";
 #endif
 	while ((c = getopt(argc, argv, optstr)) != -1) {
 		switch (c) {
@@ -1164,6 +1189,9 @@ main(int argc, char *argv[])
 			break;
 		case 'C':
 			memflags |= VM_MEM_F_INCORE;
+			break;
+		case 'f':
+			parse_simple_config_file(optarg);
 			break;
 		case 'g':
 			dbg_port = atoi(optarg);
@@ -1206,7 +1234,8 @@ main(int argc, char *argv[])
 				errx(EX_USAGE, "invalid memsize '%s'", optarg);
 			break;
 		case 'o':
-			parse_config_option(optarg);
+			if (!parse_config_option(optarg))
+				errx(EX_USAGE, "invalid configuration option '%s'", optarg);
 			break;
 		case 'H':
 			guest_vmexit_on_hlt = 1;
