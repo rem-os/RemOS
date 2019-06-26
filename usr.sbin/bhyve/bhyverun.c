@@ -87,6 +87,7 @@ __FBSDID("$FreeBSD$");
 #include "acpi.h"
 #include "atkbdc.h"
 #include "bootrom.h"
+#include "config.h"
 #include "inout.h"
 #include "dbgport.h"
 #include "debug.h"
@@ -1092,6 +1093,7 @@ main(int argc, char *argv[])
 	restore_file = NULL;
 #endif
 
+	init_config();
 	bvmcons = 0;
 	progname = basename(argv[0]);
 	dbg_port = 0;
