@@ -1074,6 +1074,23 @@ spinup_vcpu(struct vmctx *ctx, int vcpu)
 	fbsdrun_addcpu(ctx, BSP, vcpu, rip);
 }
 
+static void
+parse_config_option(const char *option)
+{
+	const char *value;
+	char *path;
+
+	value = strchr(option, '=');
+	if (value == NULL || value[1] == '\0') {
+		warn("Invalid configuration option \"%s\"", option);
+		return;
+	}
+	path = strndup(option, value - option);
+	if (path == NULL)
+		err(4, "Failed to allocate memory");
+	set_config_value_path(path, value + 1);
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -1107,9 +1124,9 @@ main(int argc, char *argv[])
 	memflags = 0;
 
 #ifdef BHYVE_SNAPSHOT
-	optstr = "abehuwxACDHIPSWYp:g:G:c:s:m:l:U:r:";
+	optstr = "abehuwxACDHIPSWYo:p:g:G:c:s:m:l:U:r:";
 #else
-	optstr = "abehuwxACDHIPSWYp:g:G:c:s:m:l:U:";
+	optstr = "abehuwxACDHIPSWYo:p:g:G:c:s:m:l:U:";
 #endif
 	while ((c = getopt(argc, argv, optstr)) != -1) {
 		switch (c) {
@@ -1179,6 +1196,9 @@ main(int argc, char *argv[])
 			error = vm_parse_memsize(optarg, &memsize);
 			if (error)
 				errx(EX_USAGE, "invalid memsize '%s'", optarg);
+			break;
+		case 'o':
+			parse_config_option(optarg);
 			break;
 		case 'H':
 			guest_vmexit_on_hlt = 1;
