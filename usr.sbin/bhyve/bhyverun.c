@@ -1120,12 +1120,13 @@ set_defaults(void)
 	/* default is xAPIC */
 	set_config_bool("x2apic", false);
 	set_config_bool("acpi_tables", false);
+	set_config_bool("bvmcons", false);
 }
 
 int
 main(int argc, char *argv[])
 {
-	int c, error, dbg_port, err, bvmcons;
+	int c, error, dbg_port, err;
 	int max_vcpus, mptgen, memflags;
 	int rtc_localtime;
 	bool gdb_stop;
@@ -1144,7 +1145,6 @@ main(int argc, char *argv[])
 
 	init_config();
 	set_defaults();
-	bvmcons = 0;
 	progname = basename(argv[0]);
 	dbg_port = 0;
 	gdb_stop = false;
@@ -1170,7 +1170,7 @@ main(int argc, char *argv[])
 			set_config_bool("acpi_tables", true);
 			break;
 		case 'b':
-			bvmcons = 1;
+			set_config_bool("bvmcons", true);
 			break;
 		case 'D':
 			destroy_on_poweroff = 1;
@@ -1378,7 +1378,7 @@ main(int argc, char *argv[])
 	if (gdb_port != 0)
 		init_gdb(ctx, gdb_port, gdb_stop);
 
-	if (bvmcons)
+	if (get_config_bool("bvmcons"))
 		init_bvmcons();
 
 	if (lpc_bootrom()) {
