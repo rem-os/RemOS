@@ -1120,7 +1120,7 @@ set_defaults(void)
 {
 
 	/* default is xAPIC */
-	set_config_value_path("x2apic", "false");
+	set_config_bool("x2apic", false);
 }
 
 int
@@ -1165,7 +1165,7 @@ main(int argc, char *argv[])
 	while ((c = getopt(argc, argv, optstr)) != -1) {
 		switch (c) {
 		case 'a':
-			set_config_value_path("x2apic", "false");
+			set_config_bool("x2apic", false);
 			break;
 		case 'A':
 			acpi = 1;
@@ -1269,7 +1269,7 @@ main(int argc, char *argv[])
 			virtio_msix = 0;
 			break;
 		case 'x':
-			set_config_value_path("x2apic", "true");
+			set_config_bool("x2apic", true);
 			break;
 		case 'Y':
 			mptgen = 0;
