@@ -192,7 +192,6 @@ char *guest_uuid_str;
 
 int raw_stdio = 0;
 
-static int gdb_port = 0;
 static int guest_vmexit_on_hlt, guest_vmexit_on_pause;
 static int virtio_msix = 1;
 static int destroy_on_poweroff = 0;
@@ -457,8 +456,7 @@ fbsdrun_start_thread(void *param)
 #ifdef BHYVE_SNAPSHOT
 	checkpoint_cpu_add(vcpu);
 #endif
-	if (gdb_port != 0)
-		gdb_cpu_add(vcpu);
+	gdb_cpu_add(vcpu);
 
 	vm_loop(mtp->mt_ctx, vcpu, vmexit[vcpu].rip);
 
@@ -735,8 +733,7 @@ vmexit_mtrap(struct vmctx *ctx, struct vm_exit *vmexit, int *pvcpu)
 #ifdef BHYVE_SNAPSHOT
 	checkpoint_cpu_suspend(*pvcpu);
 #endif
-	if (gdb_port != 0)
-		gdb_cpu_mtrap(*pvcpu);
+	gdb_cpu_mtrap(*pvcpu);
 #ifdef BHYVE_SNAPSHOT
 	checkpoint_cpu_resume(*pvcpu);
 #endif
@@ -836,8 +833,7 @@ vmexit_debug(struct vmctx *ctx, struct vm_exit *vmexit, int *pvcpu)
 #ifdef BHYVE_SNAPSHOT
 	checkpoint_cpu_suspend(*pvcpu);
 #endif
-	if (gdb_port != 0)
-		gdb_cpu_suspend(*pvcpu);
+	gdb_cpu_suspend(*pvcpu);
 #ifdef BHYVE_SNAPSHOT
 	checkpoint_cpu_resume(*pvcpu);
 #endif
@@ -848,7 +844,7 @@ static int
 vmexit_breakpoint(struct vmctx *ctx, struct vm_exit *vmexit, int *pvcpu)
 {
 
-	if (gdb_port == 0) {
+	if (!gdb_active) {
 		fprintf(stderr, "vm_loop: unexpected VMEXIT_DEBUG\n");
 		exit(4);
 	}
@@ -1121,6 +1117,7 @@ set_defaults(void)
 	set_config_bool("x2apic", false);
 	set_config_bool("acpi_tables", false);
 	set_config_bool("bvmconsole", false);
+	set_config_bool("gdb.wait", false);
 	set_config_bool("memory.guest_in_core", false);
 	set_config_value("memory.size", "256M");
 	set_config_bool("memory.wired", false);
@@ -1132,7 +1129,6 @@ main(int argc, char *argv[])
 	int c, error, err;
 	int max_vcpus, mptgen, memflags;
 	int rtc_localtime;
-	bool gdb_stop;
 	struct vmctx *ctx;
 	uint64_t rip;
 	size_t memsize;
@@ -1149,8 +1145,6 @@ main(int argc, char *argv[])
 	init_config();
 	set_defaults();
 	progname = basename(argv[0]);
-	dbg_port = 0;
-	gdb_stop = false;
 	guest_ncpus = 1;
 	sockets = cores = threads = 1;
 	maxcpus = 0;
@@ -1199,10 +1193,10 @@ main(int argc, char *argv[])
 			break;
 		case 'G':
 			if (optarg[0] == 'w') {
-				gdb_stop = true;
+				set_config_bool("gdb.wait", true);
 				optarg++;
 			}
-			gdb_port = atoi(optarg);
+			set_config_value("gdb.port", optarg);
 			break;
 		case 'l':
 			if (strncmp(optarg, "help", strlen(optarg)) == 0) {
@@ -1389,8 +1383,9 @@ main(int argc, char *argv[])
 	if (value != NULL)
 		init_dbgport(atoi(value));
 
-	if (gdb_port != 0)
-		init_gdb(ctx, gdb_port, gdb_stop);
+	value = get_config_value("gdb.port");
+	if (value != NULL)
+		init_gdb(ctx, atoi(value), get_config_bool("gdb.wait"));
 
 	if (get_config_bool("bvmconsole"))
 		init_bvmcons();
