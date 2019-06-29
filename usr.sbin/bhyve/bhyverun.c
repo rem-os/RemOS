@@ -1129,7 +1129,7 @@ set_defaults(void)
 int
 main(int argc, char *argv[])
 {
-	int c, error, dbg_port, err;
+	int c, error, err;
 	int max_vcpus, mptgen, memflags;
 	int rtc_localtime;
 	bool gdb_stop;
@@ -1195,7 +1195,7 @@ main(int argc, char *argv[])
 			parse_simple_config_file(optarg);
 			break;
 		case 'g':
-			dbg_port = atoi(optarg);
+			set_config_value("bvmdebug.port", optarg);
 			break;
 		case 'G':
 			if (optarg[0] == 'w') {
@@ -1385,8 +1385,9 @@ main(int argc, char *argv[])
 	if (acpi)
 		vmgenc_init(ctx);
 
-	if (dbg_port != 0)
-		init_dbgport(dbg_port);
+	value = get_config_value("bvmdebug.port");
+	if (value != NULL)
+		init_dbgport(atoi(value));
 
 	if (gdb_port != 0)
 		init_gdb(ctx, gdb_port, gdb_stop);
