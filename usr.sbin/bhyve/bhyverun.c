@@ -1120,7 +1120,7 @@ set_defaults(void)
 	/* default is xAPIC */
 	set_config_bool("x2apic", false);
 	set_config_bool("acpi_tables", false);
-	set_config_bool("bvmcons", false);
+	set_config_bool("bvmconsole", false);
 	set_config_bool("memory.guest_in_core", false);
 	set_config_value("memory.size", "256M");
 	set_config_bool("memory.wired", false);
@@ -1171,7 +1171,7 @@ main(int argc, char *argv[])
 			set_config_bool("acpi_tables", true);
 			break;
 		case 'b':
-			set_config_bool("bvmcons", true);
+			set_config_bool("bvmconsole", true);
 			break;
 		case 'D':
 			destroy_on_poweroff = 1;
@@ -1392,7 +1392,7 @@ main(int argc, char *argv[])
 	if (gdb_port != 0)
 		init_gdb(ctx, gdb_port, gdb_stop);
 
-	if (get_config_bool("bvmcons"))
+	if (get_config_bool("bvmconsole"))
 		init_bvmcons();
 
 	if (lpc_bootrom()) {
