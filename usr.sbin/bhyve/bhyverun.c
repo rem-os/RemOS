@@ -1177,6 +1177,8 @@ parse_simple_config_file(const char *path)
 	linecap = 0;
 	lineno = 1;
 	for (lineno = 1; getline(&line, &linecap, fp) > 0; lineno++) {
+		if (*line == '#' || *line == '\n')
+			continue;
 		cp = strchr(line, '\n');
 		if (cp != NULL)
 			*cp = '\0';
