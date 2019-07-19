@@ -1716,7 +1716,7 @@ retry:
 			}
 		}
 		if (m != NULL)
-			vm_page_hold(m);
+			vm_page_wire(m);
 	}
 	PA_UNLOCK_COND(pa);
 	PMAP_UNLOCK(pmap);
@@ -3251,8 +3251,7 @@ static boolean_t
 pmap_protect_pde(pmap_t pmap, pd_entry_t *pde, vm_offset_t sva, vm_prot_t prot)
 {
 	pd_entry_t newpde, oldpde;
-	vm_offset_t eva, va;
-	vm_page_t m;
+	vm_page_t m, mt;
 	boolean_t anychanged;
 
 	PMAP_LOCK_ASSERT(pmap, MA_OWNED);
@@ -3261,15 +3260,15 @@ pmap_protect_pde(pmap_t pmap, pd_entry_t *pde, vm_offset_t sva, vm_prot_t prot)
 	anychanged = FALSE;
 retry:
 	oldpde = newpde = *pde;
-	if ((oldpde & (PG_MANAGED | PG_M | PG_RW)) ==
-	    (PG_MANAGED | PG_M | PG_RW)) {
-		eva = sva + NBPDR;
-		for (va = sva, m = PHYS_TO_VM_PAGE(oldpde & PG_PS_FRAME);
-		    va < eva; va += PAGE_SIZE, m++)
-			vm_page_dirty(m);
-	}
-	if ((prot & VM_PROT_WRITE) == 0)
+	if ((prot & VM_PROT_WRITE) == 0) {
+		if ((oldpde & (PG_MANAGED | PG_M | PG_RW)) ==
+		    (PG_MANAGED | PG_M | PG_RW)) {
+			m = PHYS_TO_VM_PAGE(oldpde & PG_PS_FRAME);
+			for (mt = m; mt < &m[NBPDR / PAGE_SIZE]; mt++)
+				vm_page_dirty(mt);
+		}
 		newpde &= ~(PG_RW | PG_M);
+	}
 #ifdef PMAP_PAE_COMP
 	if ((prot & VM_PROT_EXECUTE) == 0 && !i386_read_exec)
 		newpde |= pg_nx;
@@ -5097,13 +5096,6 @@ __CONCAT(PMTYPE, ts_referenced)(vm_page_t m)
 			 * reference bit will result in clearing that bit.
 			 * This function is designed to avoid the selection of
 			 * the same 4KB page for every 2- or 4MB page mapping.
-			 *
-			 * On demotion, a mapping that hasn't been referenced
-			 * is simply destroyed.  To avoid the possibility of a
-			 * subsequent page fault on a demoted wired mapping,
-			 * always leave its reference bit set.  Moreover,
-			 * since the superpage is wired, the current state of
-			 * its reference bit won't affect page replacement.
 			 */
 			if ((((pa >> PAGE_SHIFT) ^ (pv->pv_va >> PDRSHIFT) ^
 			    (uintptr_t)pmap) & (NPTEPG - 1)) == 0 &&
