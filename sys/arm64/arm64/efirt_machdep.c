@@ -239,7 +239,6 @@ efi_arch_enter(void)
 
 	__asm __volatile(
 	    "msr ttbr0_el1, %0	\n"
-	    "isb		\n"
 	    "dsb  ishst		\n"
 	    "tlbi vmalle1is	\n"
 	    "dsb  ish		\n"
@@ -267,7 +266,6 @@ efi_arch_leave(void)
 	td = curthread;
 	__asm __volatile(
 	    "msr ttbr0_el1, %0	\n"
-	    "isb		\n"
 	    "dsb  ishst		\n"
 	    "tlbi vmalle1is	\n"
 	    "dsb  ish		\n"

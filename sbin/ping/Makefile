@@ -19,7 +19,9 @@ LIBADD+=	cap_dns
 CFLAGS+=-DWITH_CASPER
 .endif
 
+.if !defined(RELEASE_CRUNCH)
 CFLAGS+=-DIPSEC
 LIBADD+=	ipsec
+.endif
 
 .include <bsd.prog.mk>

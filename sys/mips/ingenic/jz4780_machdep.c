@@ -39,7 +39,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/boot.h>
 #include <sys/cons.h>
 #include <sys/kdb.h>
-#include <sys/mutex.h>
 #include <sys/reboot.h>
 
 #ifdef FDT

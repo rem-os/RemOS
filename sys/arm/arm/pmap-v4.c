@@ -3438,8 +3438,9 @@ retry:
 			goto retry;
 		if (l1pd & L1_S_PROT_W || (prot & VM_PROT_WRITE) == 0) {
 			m = PHYS_TO_VM_PAGE(pa);
-			vm_page_wire(m);
+			vm_page_hold(m);
 		}
+
 	} else {
 		/*
 		 * Note that we can't rely on the validity of the L1
@@ -3469,7 +3470,7 @@ retry:
 			if (vm_page_pa_tryrelock(pmap, pa & PG_FRAME, &paddr))
 				goto retry;
 			m = PHYS_TO_VM_PAGE(pa);
-			vm_page_wire(m);
+			vm_page_hold(m);
 		}
 	}
 

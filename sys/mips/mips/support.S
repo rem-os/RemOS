@@ -336,15 +336,19 @@ XLEAF(casueword)
 	GET_CPU_PCPU(v1)
 	PTR_L	v1, PC_CURPCB(v1)
 	PTR_S	v0, U_PCB_ONFAULT(v1)
-
-	li	v0, 1
+1:
 	move	t0, a3
 	ll	t1, 0(a0)
-	bne	a1, t1, 1f
+	bne	a1, t1, 2f
 	nop
 	sc	t0, 0(a0)		# store word
-	xori	v0, t0, 1
-1:
+	beqz	t0, 1b
+	nop
+	j	3f
+	li	v0, 0
+2:
+	li	v0, -1
+3:
 	PTR_S	zero, U_PCB_ONFAULT(v1)
 	jr	ra
 	sw	t1, 0(a2)		# unconditionally store old word
@@ -359,15 +363,19 @@ XLEAF(casueword)
 	GET_CPU_PCPU(v1)
 	PTR_L	v1, PC_CURPCB(v1)
 	PTR_S	v0, U_PCB_ONFAULT(v1)
-
-	li	v0, 1
+1:
 	move	t0, a3
 	lld	t1, 0(a0)
-	bne	a1, t1, 1f
+	bne	a1, t1, 2f
 	nop
 	scd	t0, 0(a0)		# store double word
-	xori	v0, t0, 1
-1:
+	beqz	t0, 1b
+	nop
+	j	3f
+	li	v0, 0
+2:
+	li	v0, -1
+3:
 	PTR_S	zero, U_PCB_ONFAULT(v1)
 	jr	ra
 	sd	t1, 0(a2)		# unconditionally store old word

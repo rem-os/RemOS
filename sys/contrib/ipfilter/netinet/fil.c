@@ -179,10 +179,6 @@ static	int		ipf_updateipid __P((fr_info_t *));
 static	int		ipf_settimeout __P((struct ipf_main_softc_s *,
 					    struct ipftuneable *,
 					    ipftuneval_t *));
-#ifdef	USE_INET6
-static	u_int		ipf_pcksum6 __P((fr_info_t *, ip6_t *,
-						u_int32_t, u_int32_t));
-#endif
 #if !defined(_KERNEL) || SOLARIS
 static	int		ppsratecheck(struct timeval *, int *, int);
 #endif
@@ -4431,23 +4427,23 @@ static int
 ipf_rule_compare(frentry_t *fr1, frentry_t *fr2)
 {
 	if (fr1->fr_cksum != fr2->fr_cksum)
-		return (1);
+		return 1;
 	if (fr1->fr_size != fr2->fr_size)
-		return (2);
+		return 2;
 	if (fr1->fr_dsize != fr2->fr_dsize)
-		return (3);
-	if (bcmp((char *)&fr1->fr_func, (char *)&fr2->fr_func, FR_CMPSIZ(fr1))
-	    != 0)
-		return (4);
+		return 3;
+	if (bcmp((char *)&fr1->fr_func, (char *)&fr2->fr_func,
+		 fr1->fr_size - offsetof(struct frentry, fr_func)) != 0)
+		return 4;
 	if (fr1->fr_data && !fr2->fr_data)
-		return (5);
+		return 5;
 	if (!fr1->fr_data && fr2->fr_data)
-		return (6);
+		return 6;
 	if (fr1->fr_data) {
 		if (bcmp(fr1->fr_caddr, fr2->fr_caddr, fr1->fr_dsize))
-			return (7);
+			return 7;
 	}
-	return (0);
+	return 0;
 }
 
 
@@ -4476,11 +4472,7 @@ frrequest(softc, unit, req, data, set, makecopy)
 	int set, makecopy;
 	caddr_t data;
 {
-	int error = 0, in, family, need_free = 0;
-	enum {	OP_ADD,		/* add rule */
-		OP_REM,		/* remove rule */
-		OP_ZERO 	/* zero statistics and counters */ }
-		addrem = OP_ADD;
+	int error = 0, in, family, addrem, need_free = 0;
 	frentry_t frd, *fp, *f, **fprev, **ftail;
 	void *ptr, *uptr, *cptr;
 	u_int *p, *pp;
@@ -4548,11 +4540,11 @@ frrequest(softc, unit, req, data, set, makecopy)
 
 	if (req == (ioctlcmd_t)SIOCINAFR || req == (ioctlcmd_t)SIOCINIFR ||
 	    req == (ioctlcmd_t)SIOCADAFR || req == (ioctlcmd_t)SIOCADIFR)
-		addrem = OP_ADD;	/* Add rule */
+		addrem = 0;
 	else if (req == (ioctlcmd_t)SIOCRMAFR || req == (ioctlcmd_t)SIOCRMIFR)
-		addrem = OP_REM;		/* Remove rule */
+		addrem = 1;
 	else if (req == (ioctlcmd_t)SIOCZRLST)
-		addrem = OP_ZERO;	/* Zero statistics and counters */
+		addrem = 2;
 	else {
 		IPFERROR(9);
 		error = EINVAL;
@@ -4586,7 +4578,7 @@ frrequest(softc, unit, req, data, set, makecopy)
 			goto donenolock;
 		}
 
-		if (addrem == OP_ADD) {
+		if (addrem == 0) {
 			error = ipf_funcinit(softc, fp);
 			if (error != 0)
 				goto donenolock;
@@ -4650,7 +4642,7 @@ frrequest(softc, unit, req, data, set, makecopy)
 			 * them to be created if they don't already exit.
 			 */
 			group = FR_NAME(fp, fr_group);
-			if (addrem == OP_ADD) {
+			if (addrem == 0) {
 				fg = ipf_group_add(softc, group, NULL,
 						   fp->fr_flags, unit, set);
 				fp->fr_grp = fg;
@@ -4955,7 +4947,7 @@ frrequest(softc, unit, req, data, set, makecopy)
 	/*
 	 * If zero'ing statistics, copy current to caller and zero.
 	 */
-	if (addrem == OP_ZERO) {
+	if (addrem == 2) {
 		if (f == NULL) {
 			IPFERROR(27);
 			error = ESRCH;
@@ -5048,7 +5040,7 @@ frrequest(softc, unit, req, data, set, makecopy)
 	/*
 	 * Request to remove a rule.
 	 */
-	if (addrem == OP_REM) {
+	if (addrem == 1) {
 		if (f == NULL) {
 			IPFERROR(29);
 			error = ESRCH;
@@ -5114,7 +5106,8 @@ frrequest(softc, unit, req, data, set, makecopy)
 		if (fp->fr_next != NULL)
 			fp->fr_next->fr_pnext = &fp->fr_next;
 		*ftail = fp;
-		ipf_fixskip(ftail, fp, 1);
+		if (addrem == 0)
+			ipf_fixskip(ftail, fp, 1);
 
 		fp->fr_icmpgrp = NULL;
 		if (fp->fr_icmphead != -1) {
@@ -10230,55 +10223,4 @@ ipf_inet6_mask_del(bits, mask, mtab)
 	mtab->imt6_max--;
 	ASSERT(mtab->imt6_max >= 0);
 }
-
-#ifdef	_KERNEL
-static u_int
-ipf_pcksum6(fin, ip6, off, len)
-	fr_info_t *fin;
-	ip6_t *ip6;
-	u_int32_t off;
-	u_int32_t len;
-{
-	struct mbuf *m;
-	int sum;
-
-	m = fin->fin_m;
-	if (m->m_len < sizeof(struct ip6_hdr)) {
-		return 0xffff;
-	}
-
-	sum = in6_cksum(m, ip6->ip6_nxt, off, len);
-	return(sum);
-}
-#else
-static u_int
-ipf_pcksum6(fin, ip6, off, len)
-	fr_info_t *fin;
-	ip6_t *ip6;
-	u_int32_t off;
-	u_int32_t len;
-{
-	u_short *sp;
-	u_int sum;
-
-	sp = (u_short *)&ip6->ip6_src;
-	sum = *sp++;   /* ip6_src */
-	sum += *sp++;
-	sum += *sp++;
-	sum += *sp++;
-	sum += *sp++;
-	sum += *sp++;
-	sum += *sp++;
-	sum += *sp++;
-	sum += *sp++;   /* ip6_dst */
-	sum += *sp++;
-	sum += *sp++;
-	sum += *sp++;
-	sum += *sp++;
-	sum += *sp++;
-	sum += *sp++;
-	sum += *sp++;
-	return(ipf_pcksum(fin, off, sum));
-}
-#endif
 #endif

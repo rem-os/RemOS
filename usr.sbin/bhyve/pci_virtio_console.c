@@ -356,11 +356,8 @@ out:
 	if (fd != -1)
 		close(fd);
 
-	if (error != 0) {
-		if (s != -1)
-			close(s);
-		free(sock);
-	}
+	if (error != 0 && s != -1)
+		close(s);
 
 	return (error);
 }

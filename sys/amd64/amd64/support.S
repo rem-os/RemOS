@@ -811,7 +811,6 @@ ENTRY(casueword32_nosmap)
 	lock
 #endif
 	cmpxchgl %ecx,(%rdi)			/* new = %ecx */
-	setne	%cl
 
 	/*
 	 * The old value is in %eax.  If the store succeeded it will be the
@@ -829,7 +828,6 @@ ENTRY(casueword32_nosmap)
 	 */
 	movl	%esi,(%rdx)			/* oldp = %rdx */
 	POP_FRAME_POINTER
-	movzbl	%cl, %eax
 	ret
 END(casueword32_nosmap)
 
@@ -849,7 +847,6 @@ ENTRY(casueword32_smap)
 #endif
 	cmpxchgl %ecx,(%rdi)			/* new = %ecx */
 	clac
-	setne	%cl
 
 	/*
 	 * The old value is in %eax.  If the store succeeded it will be the
@@ -867,7 +864,6 @@ ENTRY(casueword32_smap)
 	 */
 	movl	%esi,(%rdx)			/* oldp = %rdx */
 	POP_FRAME_POINTER
-	movzbl	%cl, %eax
 	ret
 END(casueword32_smap)
 
@@ -890,7 +886,6 @@ ENTRY(casueword_nosmap)
 	lock
 #endif
 	cmpxchgq %rcx,(%rdi)			/* new = %rcx */
-	setne	%cl
 
 	/*
 	 * The old value is in %rax.  If the store succeeded it will be the
@@ -902,7 +897,6 @@ ENTRY(casueword_nosmap)
 	movq	%rax,PCB_ONFAULT(%r8)
 	movq	%rsi,(%rdx)
 	POP_FRAME_POINTER
-	movzbl	%cl, %eax
 	ret
 END(casueword_nosmap)
 
@@ -922,7 +916,6 @@ ENTRY(casueword_smap)
 #endif
 	cmpxchgq %rcx,(%rdi)			/* new = %rcx */
 	clac
-	setne	%cl
 
 	/*
 	 * The old value is in %rax.  If the store succeeded it will be the
@@ -934,7 +927,6 @@ ENTRY(casueword_smap)
 	movq	%rax,PCB_ONFAULT(%r8)
 	movq	%rsi,(%rdx)
 	POP_FRAME_POINTER
-	movzbl	%cl, %eax
 	ret
 END(casueword_smap)
 

@@ -51,7 +51,7 @@ struct vm_memmap {
 struct vm_memseg {
 	int		segid;
 	size_t		len;
-	char		name[VM_MAX_SUFFIXLEN + 1];
+	char		name[SPECNAMELEN + 1];
 };
 
 struct vm_register {

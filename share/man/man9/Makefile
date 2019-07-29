@@ -381,6 +381,7 @@ MAN=	accept_filter.9 \
 	vm_page_aflag.9 \
 	vm_page_free.9 \
 	vm_page_grab.9 \
+	vm_page_hold.9 \
 	vm_page_insert.9 \
 	vm_page_lookup.9 \
 	vm_page_rename.9 \
@@ -2247,6 +2248,7 @@ MLINKS+=vm_page_aflag.9 vm_page_aflag_clear.9 \
 MLINKS+=vm_page_free.9 vm_page_free_toq.9 \
 	vm_page_free.9 vm_page_free_zero.9 \
 	vm_page_free.9 vm_page_try_to_free.9
+MLINKS+=vm_page_hold.9 vm_page_unhold.9
 MLINKS+=vm_page_insert.9 vm_page_remove.9
 MLINKS+=vm_page_wire.9 vm_page_unwire.9
 MLINKS+=VOP_ACCESS.9 VOP_ACCESSX.9
