@@ -723,13 +723,11 @@ umtxq_check_susp(struct thread *td, bool sleep)
 	error = 0;
 	p = td->td_proc;
 	PROC_LOCK(p);
-	if (P_SHOULDSTOP(p) ||
-	    ((p->p_flag & P_TRACED) && (td->td_dbgflags & TDB_SUSPEND))) {
-		if (p->p_flag & P_SINGLE_EXIT)
-			error = EINTR;
-		else
-			error = sleep ? thread_suspend_check(0) : ERESTART;
-	}
+	if (p->p_flag & P_SINGLE_EXIT)
+		error = EINTR;
+	else if (P_SHOULDSTOP(p) ||
+	    ((p->p_flag & P_TRACED) && (td->td_dbgflags & TDB_SUSPEND)))
+		error = sleep ? thread_suspend_check(0) : ERESTART;
 	PROC_UNLOCK(p);
 	return (error);
 }
@@ -3229,7 +3227,8 @@ again:
 	rv = casueword32(&sem->_has_waiters, 0, &count1, 1);
 	if (rv == 0)
 		rv1 = fueword32(&sem->_count, &count);
-	if (rv == -1 || (rv == 0 && (rv1 == -1 || count != 0)) || rv == 1) {
+	if (rv == -1 || (rv == 0 && (rv1 == -1 || count != 0)) ||
+	    (rv == 1 && count1 == 0)) {
 		umtxq_lock(&uq->uq_key);
 		umtxq_unbusy(&uq->uq_key);
 		umtxq_remove(uq);
@@ -3316,14 +3315,13 @@ do_sem2_wait(struct thread *td, struct _usem2 *sem, struct _umtx_time *timeout)
 
 	uq = td->td_umtxq;
 	flags = fuword32(&sem->_flags);
-	error = umtx_key_get(sem, TYPE_SEM, GET_SHARE(flags), &uq->uq_key);
-	if (error != 0)
-		return (error);
-
 	if (timeout != NULL)
 		abs_timeout_init2(&timo, timeout);
 
 again:
+	error = umtx_key_get(sem, TYPE_SEM, GET_SHARE(flags), &uq->uq_key);
+	if (error != 0)
+		return (error);
 	umtxq_lock(&uq->uq_key);
 	umtxq_busy(&uq->uq_key);
 	umtxq_insert(uq);

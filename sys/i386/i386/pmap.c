@@ -5096,6 +5096,13 @@ __CONCAT(PMTYPE, ts_referenced)(vm_page_t m)
 			 * reference bit will result in clearing that bit.
 			 * This function is designed to avoid the selection of
 			 * the same 4KB page for every 2- or 4MB page mapping.
+			 *
+			 * On demotion, a mapping that hasn't been referenced
+			 * is simply destroyed.  To avoid the possibility of a
+			 * subsequent page fault on a demoted wired mapping,
+			 * always leave its reference bit set.  Moreover,
+			 * since the superpage is wired, the current state of
+			 * its reference bit won't affect page replacement.
 			 */
 			if ((((pa >> PAGE_SHIFT) ^ (pv->pv_va >> PDRSHIFT) ^
 			    (uintptr_t)pmap) & (NPTEPG - 1)) == 0 &&
@@ -5160,19 +5167,19 @@ __CONCAT(PMTYPE, advise)(pmap_t pmap, vm_offset_t sva, vm_offset_t eva,
 	pt_entry_t *pte;
 	vm_offset_t va, pdnxt;
 	vm_page_t m;
-	boolean_t anychanged, pv_lists_locked;
+	bool anychanged, pv_lists_locked;
 
 	if (advice != MADV_DONTNEED && advice != MADV_FREE)
 		return;
 	if (pmap_is_current(pmap))
-		pv_lists_locked = FALSE;
+		pv_lists_locked = false;
 	else {
-		pv_lists_locked = TRUE;
+		pv_lists_locked = true;
 resume:
 		rw_wlock(&pvh_global_lock);
 		sched_pin();
 	}
-	anychanged = FALSE;
+	anychanged = false;
 	PMAP_LOCK(pmap);
 	for (; sva < eva; sva = pdnxt) {
 		pdnxt = (sva + NBPDR) & ~PDRMASK;
@@ -5186,7 +5193,7 @@ resume:
 			if ((oldpde & PG_MANAGED) == 0)
 				continue;
 			if (!pv_lists_locked) {
-				pv_lists_locked = TRUE;
+				pv_lists_locked = true;
 				if (!rw_try_wlock(&pvh_global_lock)) {
 					if (anychanged)
 						pmap_invalidate_all_int(pmap);
@@ -5205,16 +5212,24 @@ resume:
 			/*
 			 * Unless the page mappings are wired, remove the
 			 * mapping to a single page so that a subsequent
-			 * access may repromote.  Since the underlying page
-			 * table page is fully populated, this removal never
-			 * frees a page table page.
+			 * access may repromote.  Choosing the last page
+			 * within the address range [sva, min(pdnxt, eva))
+			 * generally results in more repromotions.  Since the
+			 * underlying page table page is fully populated, this
+			 * removal never frees a page table page.
 			 */
 			if ((oldpde & PG_W) == 0) {
-				pte = pmap_pte_quick(pmap, sva);
+				va = eva;
+				if (va > pdnxt)
+					va = pdnxt;
+				va -= PAGE_SIZE;
+				KASSERT(va >= sva,
+				    ("pmap_advise: no address gap"));
+				pte = pmap_pte_quick(pmap, va);
 				KASSERT((*pte & PG_V) != 0,
 				    ("pmap_advise: invalid PTE"));
-				pmap_remove_pte(pmap, pte, sva, NULL);
-				anychanged = TRUE;
+				pmap_remove_pte(pmap, pte, va, NULL);
+				anychanged = true;
 			}
 		}
 		if (pdnxt > eva)
@@ -5243,7 +5258,7 @@ resume:
 				if (va == pdnxt)
 					va = sva;
 			} else
-				anychanged = TRUE;
+				anychanged = true;
 			continue;
 maybe_invlrng:
 			if (va != pdnxt) {
@@ -5273,7 +5288,7 @@ __CONCAT(PMTYPE, clear_modify)(vm_page_t m)
 	pv_entry_t next_pv, pv;
 	pmap_t pmap;
 	pd_entry_t oldpde, *pde;
-	pt_entry_t oldpte, *pte;
+	pt_entry_t *pte;
 	vm_offset_t va;
 
 	KASSERT((m->oflags & VPO_UNMANAGED) == 0,
@@ -5300,34 +5315,24 @@ __CONCAT(PMTYPE, clear_modify)(vm_page_t m)
 		PMAP_LOCK(pmap);
 		pde = pmap_pde(pmap, va);
 		oldpde = *pde;
-		if ((oldpde & PG_RW) != 0) {
-			if (pmap_demote_pde(pmap, pde, va)) {
-				if ((oldpde & PG_W) == 0) {
-					/*
-					 * Write protect the mapping to a
-					 * single page so that a subsequent
-					 * write access may repromote.
-					 */
-					va += VM_PAGE_TO_PHYS(m) - (oldpde &
-					    PG_PS_FRAME);
-					pte = pmap_pte_quick(pmap, va);
-					oldpte = *pte;
-					if ((oldpte & PG_V) != 0) {
-						/*
-						 * Regardless of whether a pte is 32 or 64 bits
-						 * in size, PG_RW and PG_M are among the least
-						 * significant 32 bits.
-						 */
-						while (!atomic_cmpset_int((u_int *)pte,
-						    oldpte,
-						    oldpte & ~(PG_M | PG_RW)))
-							oldpte = *pte;
-						vm_page_dirty(m);
-						pmap_invalidate_page_int(pmap,
-						    va);
-					}
-				}
-			}
+		/* If oldpde has PG_RW set, then it also has PG_M set. */
+		if ((oldpde & PG_RW) != 0 &&
+		    pmap_demote_pde(pmap, pde, va) &&
+		    (oldpde & PG_W) == 0) {
+			/*
+			 * Write protect the mapping to a single page so that
+			 * a subsequent write access may repromote.
+			 */
+			va += VM_PAGE_TO_PHYS(m) - (oldpde & PG_PS_FRAME);
+			pte = pmap_pte_quick(pmap, va);
+			/*
+			 * Regardless of whether a pte is 32 or 64 bits
+			 * in size, PG_RW and PG_M are among the least
+			 * significant 32 bits.
+			 */
+			atomic_clear_int((u_int *)pte, PG_M | PG_RW);
+			vm_page_dirty(m);
+			pmap_invalidate_page_int(pmap, va);
 		}
 		PMAP_UNLOCK(pmap);
 	}
