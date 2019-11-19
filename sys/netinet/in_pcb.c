@@ -515,7 +515,7 @@ in_pcballoc(struct socket *so, struct inpcbinfo *pcbinfo)
 
 #ifdef INVARIANTS
 	if (pcbinfo == &V_tcbinfo) {
-		INP_INFO_RLOCK_ASSERT(pcbinfo);
+		NET_EPOCH_ASSERT();
 	} else {
 		INP_INFO_WLOCK_ASSERT(pcbinfo);
 	}
@@ -2252,12 +2252,10 @@ in_pcblookup_hash_locked(struct inpcbinfo *pcbinfo, struct in_addr faddr,
 	struct inpcb *inp, *tmpinp;
 	u_short fport = fport_arg, lport = lport_arg;
 
-#ifdef INVARIANTS
 	KASSERT((lookupflags & ~(INPLOOKUP_WILDCARD)) == 0,
 	    ("%s: invalid lookup flags %d", __func__, lookupflags));
-	if (!mtx_owned(&pcbinfo->ipi_hash_lock))
-		MPASS(in_epoch_verbose(net_epoch_preempt, 1));
-#endif
+	INP_HASH_LOCK_ASSERT(pcbinfo);
+
 	/*
 	 * First look for an exact match.
 	 */
@@ -2384,7 +2382,6 @@ in_pcblookup_hash(struct inpcbinfo *pcbinfo, struct in_addr faddr,
 {
 	struct inpcb *inp;
 
-	INP_HASH_RLOCK(pcbinfo);
 	inp = in_pcblookup_hash_locked(pcbinfo, faddr, fport, laddr, lport,
 	    (lookupflags & ~(INPLOOKUP_RLOCKPCB | INPLOOKUP_WLOCKPCB)), ifp);
 	if (inp != NULL) {
@@ -2411,7 +2408,7 @@ in_pcblookup_hash(struct inpcbinfo *pcbinfo, struct in_addr faddr,
 		}
 #endif
 	}
-	INP_HASH_RUNLOCK(pcbinfo);
+
 	return (inp);
 }
 
@@ -2657,7 +2654,7 @@ in_pcbremlists(struct inpcb *inp)
 
 #ifdef INVARIANTS
 	if (pcbinfo == &V_tcbinfo) {
-		INP_INFO_RLOCK_ASSERT(pcbinfo);
+		NET_EPOCH_ASSERT();
 	} else {
 		INP_INFO_WLOCK_ASSERT(pcbinfo);
 	}
@@ -3296,11 +3293,13 @@ in_pcbattach_txrtlmt(struct inpcb *inp, struct ifnet *ifp,
 	} else {
 		error = ifp->if_snd_tag_alloc(ifp, &params, &inp->inp_snd_tag);
 
+#ifdef INET
 		if (error == 0) {
 			counter_u64_add(rate_limit_set_ok, 1);
 			counter_u64_add(rate_limit_active, 1);
 		} else
 			counter_u64_add(rate_limit_alloc_fail, 1);
+#endif
 	}
 	return (error);
 }
@@ -3320,7 +3319,9 @@ in_pcbdetach_tag(struct ifnet *ifp, struct m_snd_tag *mst)
 
 	/* release reference count on network interface */
 	if_rele(ifp);
+#ifdef INET
 	counter_u64_add(rate_limit_active, -1);
+#endif
 }
 
 /*
@@ -3479,6 +3480,7 @@ in_pcboutput_eagain(struct inpcb *inp)
 		INP_DOWNGRADE(inp);
 }
 
+#ifdef INET
 static void
 rl_init(void *st)
 {
@@ -3488,4 +3490,5 @@ rl_init(void *st)
 }
 
 SYSINIT(rl, SI_SUB_PROTO_DOMAININIT, SI_ORDER_ANY, rl_init, NULL);
+#endif
 #endif /* RATELIMIT */

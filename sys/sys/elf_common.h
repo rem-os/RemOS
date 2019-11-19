@@ -769,6 +769,12 @@ typedef struct {
 #define	LL_DELAY_LOAD		0x10
 #define	LL_DELTA		0x20
 
+/* Note section names */
+#define	ELF_NOTE_FREEBSD	"FreeBSD"
+#define	ELF_NOTE_NETBSD		"NetBSD"
+#define	ELF_NOTE_SOLARIS	"SUNW Solaris"
+#define	ELF_NOTE_GNU		"GNU"
+
 /* Values for n_type used in executables. */
 #define	NT_FREEBSD_ABI_TAG	1
 #define	NT_FREEBSD_NOINIT_TAG	2
@@ -778,6 +784,7 @@ typedef struct {
 /* NT_FREEBSD_FEATURE_CTL desc[0] bits */
 #define	NT_FREEBSD_FCTL_ASLR_DISABLE	0x00000001
 #define	NT_FREEBSD_FCTL_PROTMAX_DISABLE	0x00000002
+#define	NT_FREEBSD_FCTL_STKGAP_DISABLE	0x00000004
 
 /* Values for n_type.  Used in core files. */
 #define	NT_PRSTATUS	1	/* Process status. */
@@ -1199,6 +1206,7 @@ typedef struct {
 #define	R_PPC_SECTOFF_LO	34
 #define	R_PPC_SECTOFF_HI	35
 #define	R_PPC_SECTOFF_HA	36
+#define	R_PPC_IRELATIVE		248
 
 /*
  * 64-bit relocations

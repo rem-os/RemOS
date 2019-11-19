@@ -489,7 +489,7 @@ kern_fcntl(struct thread *td, int fd, int cmd, intptr_t arg)
 	struct filedescent *fde;
 	struct proc *p;
 	struct vnode *vp;
-	int error, flg, tmp;
+	int error, flg, seals, tmp;
 	uint64_t bsize;
 	off_t foffset;
 
@@ -756,6 +756,25 @@ kern_fcntl(struct thread *td, int fd, int cmd, intptr_t arg)
 		fdrop(fp, td);
 		break;
 
+	case F_ADD_SEALS:
+		error = fget_unlocked(fdp, fd, &cap_no_rights, &fp, NULL);
+		if (error != 0)
+			break;
+		error = fo_add_seals(fp, arg);
+		fdrop(fp, td);
+		break;
+
+	case F_GET_SEALS:
+		error = fget_unlocked(fdp, fd, &cap_no_rights, &fp, NULL);
+		if (error != 0)
+			break;
+		if (fo_get_seals(fp, &seals) == 0)
+			td->td_retval[0] = seals;
+		else
+			error = EINVAL;
+		fdrop(fp, td);
+		break;
+
 	case F_RDAHEAD:
 		arg = arg ? 128 * 1024: 0;
 		/* FALLTHROUGH */
@@ -769,6 +788,12 @@ kern_fcntl(struct thread *td, int fd, int cmd, intptr_t arg)
 			break;
 		}
 		vp = fp->f_vnode;
+		if (vp->v_type != VREG) {
+			fdrop(fp, td);
+			error = ENOTTY;
+			break;
+		}
+
 		/*
 		 * Exclusive lock synchronizes against f_seqcount reads and
 		 * writes in sequential_heuristic().

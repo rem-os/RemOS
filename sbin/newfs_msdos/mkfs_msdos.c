@@ -285,8 +285,10 @@ mkfs_msdos(const char *fname, const char *dtype, const struct msdos_options *op)
 	if (!S_ISREG(sb.st_mode))
 	    warnx("warning, %s is not a regular file", fname);
     } else {
+#ifndef MAKEFS
 	if (!S_ISCHR(sb.st_mode))
 	    warnx("warning, %s is not a character device", fname);
+#endif
     }
     if (!o.no_create)
 	if (check_mounted(fname, sb.st_mode) == -1)
@@ -717,7 +719,7 @@ mkfs_msdos(const char *fname, const char *dtype, const struct msdos_options *op)
 		mk4(img, 0x41615252);
 		mk4(img + MINBPS - 28, 0x61417272);
 		mk4(img + MINBPS - 24, 0xffffffff);
-		mk4(img + MINBPS - 20, bpb.bpbRootClust);
+		mk4(img + MINBPS - 20, 0xffffffff);
 		mk2(img + MINBPS - 2, DOSMAGIC);
 	    } else if (lsn >= bpb.bpbResSectors && lsn < dir &&
 		       !((lsn - bpb.bpbResSectors) %

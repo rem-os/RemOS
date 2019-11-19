@@ -4,14 +4,13 @@
 
 CONFDIR=	/etc/rc.d
 CONFGROUPS=	CONFS
-#PACKAGE=rc
+CONFSPACKAGE=	rc
 
 CONFS=	DAEMON \
 	FILESYSTEMS \
 	LOGIN \
 	NETWORKING \
 	SERVERS \
-	abi \
 	addswap \
 	adjkerntz \
 	archdep \
@@ -51,6 +50,7 @@ CONFS=	DAEMON \
 	kldxref \
 	${_kpasswdd} \
 	ldconfig \
+	linux \
 	local \
 	localpkg \
 	lockd \
@@ -107,6 +107,7 @@ CONFS=	DAEMON \
 	swaplate \
 	sysctl \
 	syslogd \
+	sysvipc \
 	tmp \
 	ugidfw \
 	${_utx} \
@@ -329,6 +330,7 @@ DIRS+=	ETC_ZFS
 ETC_ZFS=	/etc/zfs
 ETC_ZFSPACKAGE=	zfs
 #.endif
+
 
 .for fg in ${CONFGROUPS}
 ${fg}MODE?=	${BINMODE}

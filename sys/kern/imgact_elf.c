@@ -135,6 +135,27 @@ SYSCTL_INT(_kern_elf32, OID_AUTO, read_exec, CTLFLAG_RW, &i386_read_exec, 0,
     "enable execution from readable segments");
 #endif
 
+static u_long __elfN(pie_base) = ET_DYN_LOAD_ADDR;
+static int
+sysctl_pie_base(SYSCTL_HANDLER_ARGS)
+{
+	u_long val;
+	int error;
+
+	val = __elfN(pie_base);
+	error = sysctl_handle_long(oidp, &val, 0, req);
+	if (error != 0 || req->newptr == NULL)
+		return (error);
+	if ((val & PAGE_MASK) != 0)
+		return (EINVAL);
+	__elfN(pie_base) = val;
+	return (0);
+}
+SYSCTL_PROC(__CONCAT(_kern_elf, __ELF_WORD_SIZE), OID_AUTO, pie_base,
+    CTLTYPE_ULONG | CTLFLAG_MPSAFE | CTLFLAG_RW, NULL, 0,
+    sysctl_pie_base, "LU",
+    "PIE load base without randomization");
+
 SYSCTL_NODE(__CONCAT(_kern_elf, __ELF_WORD_SIZE), OID_AUTO, aslr, CTLFLAG_RW, 0,
     "");
 #define	ASLR_NODE_OID	__CONCAT(__CONCAT(_kern_elf, __ELF_WORD_SIZE), _aslr)
@@ -733,7 +754,7 @@ __elfN(load_file)(struct proc *p, const char *file, u_long *addr,
 		return (ECAPMODE);
 #endif
 
-	tempdata = malloc(sizeof(*tempdata), M_TEMP, M_WAITOK);
+	tempdata = malloc(sizeof(*tempdata), M_TEMP, M_WAITOK | M_ZERO);
 	nd = &tempdata->nd;
 	attr = &tempdata->attr;
 	imgp = &tempdata->image_params;
@@ -743,13 +764,9 @@ __elfN(load_file)(struct proc *p, const char *file, u_long *addr,
 	 */
 	imgp->proc = p;
 	imgp->attr = attr;
-	imgp->firstpage = NULL;
-	imgp->image_header = NULL;
-	imgp->object = NULL;
-	imgp->execlabel = NULL;
 
-	NDINIT(nd, LOOKUP, FOLLOW | LOCKSHARED | LOCKLEAF, UIO_SYSSPACE, file,
-	    curthread);
+	NDINIT(nd, LOOKUP, ISOPEN | FOLLOW | LOCKSHARED | LOCKLEAF,
+	    UIO_SYSSPACE, file, curthread);
 	if ((error = namei(nd)) != 0) {
 		nd->ni_vp = NULL;
 		goto fail;
@@ -1150,13 +1167,13 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 		if (baddr == 0) {
 			if ((sv->sv_flags & SV_ASLR) == 0 ||
 			    (fctl0 & NT_FREEBSD_FCTL_ASLR_DISABLE) != 0)
-				et_dyn_addr = ET_DYN_LOAD_ADDR;
+				et_dyn_addr = __elfN(pie_base);
 			else if ((__elfN(pie_aslr_enabled) &&
 			    (imgp->proc->p_flag2 & P2_ASLR_DISABLE) == 0) ||
 			    (imgp->proc->p_flag2 & P2_ASLR_ENABLE) != 0)
 				et_dyn_addr = ET_DYN_ADDR_RAND;
 			else
-				et_dyn_addr = ET_DYN_LOAD_ADDR;
+				et_dyn_addr = __elfN(pie_base);
 		}
 	}
 
@@ -1272,7 +1289,7 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 		addr = et_dyn_addr;
 
 	/*
-	 * Construct auxargs table (used by the fixup routine)
+	 * Construct auxargs table (used by the copyout_auxargs routine)
 	 */
 	elf_auxargs = malloc(sizeof(Elf_Auxargs), M_TEMP, M_NOWAIT);
 	if (elf_auxargs == NULL) {
@@ -1307,15 +1324,13 @@ ret:
 #define	suword __CONCAT(suword, __ELF_WORD_SIZE)
 
 int
-__elfN(freebsd_fixup)(register_t **stack_base, struct image_params *imgp)
+__elfN(freebsd_copyout_auxargs)(struct image_params *imgp, u_long *base)
 {
 	Elf_Auxargs *args = (Elf_Auxargs *)imgp->auxargs;
 	Elf_Auxinfo *argarray, *pos;
-	Elf_Addr *base, *auxbase;
+	u_long auxlen;
 	int error;
 
-	base = (Elf_Addr *)*stack_base;
-	auxbase = base + imgp->args->argc + 1 + imgp->args->envc + 1;
 	argarray = pos = malloc(AT_COUNT * sizeof(*pos), M_TEMP,
 	    M_WAITOK | M_ZERO);
 
@@ -1359,11 +1374,19 @@ __elfN(freebsd_fixup)(register_t **stack_base, struct image_params *imgp)
 	imgp->auxargs = NULL;
 	KASSERT(pos - argarray <= AT_COUNT, ("Too many auxargs"));
 
-	error = copyout(argarray, auxbase, sizeof(*argarray) * AT_COUNT);
+	auxlen = sizeof(*argarray) * (pos - argarray);
+	*base -= auxlen;
+	error = copyout(argarray, (void *)*base, auxlen);
 	free(argarray, M_TEMP);
-	if (error != 0)
-		return (error);
+	return (error);
+}
 
+int
+__elfN(freebsd_fixup)(register_t **stack_base, struct image_params *imgp)
+{
+	Elf_Addr *base;
+
+	base = (Elf_Addr *)*stack_base;
 	base--;
 	if (suword(base, imgp->args->argc) == -1)
 		return (EFAULT);
@@ -1721,8 +1744,7 @@ each_dumpable_segment(struct thread *td, segment_callback func, void *closure)
 	boolean_t ignore_entry;
 
 	vm_map_lock_read(map);
-	for (entry = map->header.next; entry != &map->header;
-	    entry = entry->next) {
+	VM_MAP_ENTRY_FOREACH(entry, map) {
 		/*
 		 * Don't dump inaccessible mappings, deal with legacy
 		 * coredump mode.
@@ -2213,7 +2235,7 @@ __elfN(note_thrmisc)(void *arg, struct sbuf *sb, size_t *sizep)
 	td = (struct thread *)arg;
 	if (sb != NULL) {
 		KASSERT(*sizep == sizeof(thrmisc), ("invalid size"));
-		bzero(&thrmisc._pad, sizeof(thrmisc._pad));
+		bzero(&thrmisc, sizeof(thrmisc));
 		strcpy(thrmisc.pr_tname, td->td_name);
 		sbuf_bcat(sb, &thrmisc, sizeof(thrmisc));
 	}
@@ -2741,7 +2763,6 @@ __elfN(stackgap)(struct image_params *imgp, u_long *stack_base)
 	if (pct > 50)
 		pct = 50;
 	range = imgp->eff_stack_sz * pct / 100;
-	range *= pct;
 	arc4rand(&rbase, sizeof(rbase), 0);
 	gap = rbase % range;
 	gap &= ~(sizeof(u_long) - 1);

@@ -408,17 +408,15 @@ iface_match(struct ifnet *ifp, ipfw_insn_if *cmd, struct ip_fw_chain *chain,
 #if !defined(USERSPACE) && defined(__FreeBSD__)	/* and OSX too ? */
 		struct ifaddr *ia;
 
-		if_addr_rlock(ifp);
+		NET_EPOCH_ASSERT();
+
 		CK_STAILQ_FOREACH(ia, &ifp->if_addrhead, ifa_link) {
 			if (ia->ifa_addr->sa_family != AF_INET)
 				continue;
 			if (cmd->p.ip.s_addr == ((struct sockaddr_in *)
-			    (ia->ifa_addr))->sin_addr.s_addr) {
-				if_addr_runlock(ifp);
-				return(1);	/* match */
-			}
+			    (ia->ifa_addr))->sin_addr.s_addr)
+				return (1);	/* match */
 		}
-		if_addr_runlock(ifp);
 #endif /* __FreeBSD__ */
 	}
 	return(0);	/* no match, fail ... */
@@ -1448,7 +1446,10 @@ ipfw_chk(struct ip_fw_args *args)
 do {								\
 	int x = (_len) + T + EHLEN;				\
 	if (mem) {						\
-		MPASS(pktlen >= x);				\
+		if (__predict_false(pktlen < x)) {		\
+			unlock;					\
+			goto pullup_failed;			\
+		}						\
 		p = (char *)args->mem + (_len) + EHLEN;		\
 	} else {						\
 		if (__predict_false((m)->m_len < x)) {		\

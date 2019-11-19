@@ -52,12 +52,12 @@ __FBSDID("$FreeBSD$");
 #include <netinet/sctp_bsd_addr.h>
 #include <netinet/sctp_input.h>
 #include <netinet/sctp_crc32.h>
+#include <netinet/sctp_kdtrace.h>
 #if defined(INET) || defined(INET6)
 #include <netinet/udp.h>
 #endif
 #include <netinet/udp_var.h>
 #include <machine/in_cksum.h>
-#include <netinet/in_kdtrace.h>
 
 
 
@@ -4336,7 +4336,7 @@ sctp_lowlevel_chunk_output(struct sctp_inpcb *inp,
 				 * at the SCTP layer. So use the value from
 				 * the IP layer.
 				 */
-				flowlabel = ntohl(((struct in6pcb *)inp)->in6p_flowinfo);
+				flowlabel = ntohl(((struct inpcb *)inp)->inp_flow);
 			}
 			flowlabel &= 0x000fffff;
 			len = SCTP_MIN_OVERHEAD;
@@ -4391,7 +4391,7 @@ sctp_lowlevel_chunk_output(struct sctp_inpcb *inp,
 				 * at the SCTP layer. So use the value from
 				 * the IP layer.
 				 */
-				tos_value = (ntohl(((struct in6pcb *)inp)->in6p_flowinfo) >> 20) & 0xff;
+				tos_value = (ntohl(((struct inpcb *)inp)->inp_flow) >> 20) & 0xff;
 			}
 			tos_value &= 0xfc;
 			if (ecn_ok) {
@@ -4970,7 +4970,10 @@ sctp_send_initiate(struct sctp_inpcb *inp, struct sctp_tcb *stcb, int so_locked
 
 struct mbuf *
 sctp_arethere_unrecognized_parameters(struct mbuf *in_initpkt,
-    int param_offset, int *abort_processing, struct sctp_chunkhdr *cp, int *nat_friendly)
+    int param_offset, int *abort_processing,
+    struct sctp_chunkhdr *cp,
+    int *nat_friendly,
+    int *cookie_found)
 {
 	/*
 	 * Given a mbuf containing an INIT or INIT-ACK with the param_offset
@@ -4993,6 +4996,9 @@ sctp_arethere_unrecognized_parameters(struct mbuf *in_initpkt,
 	uint16_t ptype, plen, padded_size;
 
 	*abort_processing = 0;
+	if (cookie_found != NULL) {
+		*cookie_found = 0;
+	}
 	mat = in_initpkt;
 	limit = ntohs(cp->chunk_length) - sizeof(struct sctp_init_chunk);
 	at = param_offset;
@@ -5021,10 +5027,15 @@ sctp_arethere_unrecognized_parameters(struct mbuf *in_initpkt,
 		switch (ptype) {
 			/* Param's with variable size */
 		case SCTP_HEARTBEAT_INFO:
-		case SCTP_STATE_COOKIE:
 		case SCTP_UNRECOG_PARAM:
 		case SCTP_ERROR_CAUSE_IND:
 			/* ok skip fwd */
+			at += padded_size;
+			break;
+		case SCTP_STATE_COOKIE:
+			if (cookie_found != NULL) {
+				*cookie_found = 1;
+			}
 			at += padded_size;
 			break;
 			/* Param's with variable size within a range */
@@ -5568,7 +5579,9 @@ sctp_send_initiate_ack(struct sctp_inpcb *inp, struct sctp_tcb *stcb,
 	abort_flag = 0;
 	op_err = sctp_arethere_unrecognized_parameters(init_pkt,
 	    (offset + sizeof(struct sctp_init_chunk)),
-	    &abort_flag, (struct sctp_chunkhdr *)init_chk, &nat_friendly);
+	    &abort_flag,
+	    (struct sctp_chunkhdr *)init_chk,
+	    &nat_friendly, NULL);
 	if (abort_flag) {
 do_a_abort:
 		if (op_err == NULL) {
@@ -7859,8 +7872,8 @@ sctp_med_chunk_output(struct sctp_inpcb *inp,
 	int bundle_at, ctl_cnt, no_data_chunks, eeor_mode;
 	unsigned int mtu, r_mtu, omtu, mx_mtu, to_out;
 	int tsns_sent = 0;
-	uint32_t auth_offset = 0;
-	struct sctp_auth_chunk *auth = NULL;
+	uint32_t auth_offset;
+	struct sctp_auth_chunk *auth;
 	uint16_t auth_keyid;
 	int override_ok = 1;
 	int skip_fill_up = 0;
@@ -8055,6 +8068,8 @@ again_one_more_time:
 		}
 		bundle_at = 0;
 		endoutchain = outchain = NULL;
+		auth = NULL;
+		auth_offset = 0;
 		no_fragmentflg = 1;
 		one_chunk = 0;
 		if (net->dest_state & SCTP_ADDR_UNCONFIRMED) {
@@ -9001,7 +9016,7 @@ sctp_queue_op_err(struct sctp_tcb *stcb, struct mbuf *op_err)
 
 int
 sctp_send_cookie_echo(struct mbuf *m,
-    int offset,
+    int offset, int limit,
     struct sctp_tcb *stcb,
     struct sctp_nets *net)
 {
@@ -9027,17 +9042,28 @@ sctp_send_cookie_echo(struct mbuf *m,
 		}
 		ptype = ntohs(phdr->param_type);
 		plen = ntohs(phdr->param_length);
+		if (plen < sizeof(struct sctp_paramhdr)) {
+			return (-6);
+		}
 		if (ptype == SCTP_STATE_COOKIE) {
 			int pad;
 
 			/* found the cookie */
-			if ((pad = (plen % 4))) {
-				plen += 4 - pad;
+			if (at + plen > limit) {
+				return (-7);
 			}
 			cookie = SCTP_M_COPYM(m, at, plen, M_NOWAIT);
 			if (cookie == NULL) {
 				/* No memory */
 				return (-2);
+			}
+			if ((pad = (plen % 4)) > 0) {
+				pad = 4 - pad;
+			}
+			if (pad > 0) {
+				if (sctp_pad_lastmbuf(cookie, pad, NULL) == NULL) {
+					return (-8);
+				}
 			}
 #ifdef SCTP_MBUF_LOGGING
 			if (SCTP_BASE_SYSCTL(sctp_logging_level) & SCTP_MBUF_LOGGING_ENABLE) {
@@ -9064,7 +9090,7 @@ sctp_send_cookie_echo(struct mbuf *m,
 	chk->rec.chunk_id.id = SCTP_COOKIE_ECHO;
 	chk->rec.chunk_id.can_take_data = 0;
 	chk->flags = CHUNK_FLAGS_FRAGMENT_OK;
-	chk->send_size = plen;
+	chk->send_size = SCTP_SIZE32(plen);
 	chk->sent = SCTP_DATAGRAM_UNSENT;
 	chk->snd_count = 0;
 	chk->asoc = &stcb->asoc;
@@ -12534,7 +12560,7 @@ sctp_lower_sosend(struct socket *so,
     struct thread *p
 )
 {
-	ssize_t sndlen = 0, max_len;
+	ssize_t sndlen = 0, max_len, local_add_more;
 	int error, len;
 	struct mbuf *top = NULL;
 	int queue_only = 0, queue_only_for_init = 0;
@@ -12556,7 +12582,6 @@ sctp_lower_sosend(struct socket *so,
 	int got_all_of_the_send = 0;
 	int hold_tcblock = 0;
 	int non_blocking = 0;
-	uint32_t local_add_more;
 	ssize_t local_soresv = 0;
 	uint16_t port;
 	uint16_t sinfo_flags;
@@ -12860,7 +12885,7 @@ sctp_lower_sosend(struct socket *so,
 	free_cnt_applied = 1;
 
 	if (sctp_is_feature_on(inp, SCTP_PCB_FLAGS_NO_FRAGMENT)) {
-		if (sndlen > asoc->smallest_mtu) {
+		if (sndlen > (ssize_t)asoc->smallest_mtu) {
 			SCTP_LTRACE_ERR_RET(inp, stcb, net, SCTP_FROM_SCTP_OUTPUT, EMSGSIZE);
 			error = EMSGSIZE;
 			goto out_unlocked;
@@ -12888,7 +12913,7 @@ sctp_lower_sosend(struct socket *so,
 		if ((SCTP_SB_LIMIT_SND(so) < (amount + inqueue_bytes + stcb->asoc.sb_send_resv)) ||
 		    (stcb->asoc.chunks_on_out_queue >= SCTP_BASE_SYSCTL(sctp_max_chunks_on_queue))) {
 			SCTP_LTRACE_ERR_RET(inp, stcb, net, SCTP_FROM_SCTP_OUTPUT, EWOULDBLOCK);
-			if (sndlen > SCTP_SB_LIMIT_SND(so))
+			if (sndlen > (ssize_t)SCTP_SB_LIMIT_SND(so))
 				error = EMSGSIZE;
 			else
 				error = EWOULDBLOCK;
@@ -13070,7 +13095,7 @@ sctp_lower_sosend(struct socket *so,
 
 	/* Unless E_EOR mode is on, we must make a send FIT in one call. */
 	if ((user_marks_eor == 0) &&
-	    (sndlen > SCTP_SB_LIMIT_SND(stcb->sctp_socket))) {
+	    (sndlen > (ssize_t)SCTP_SB_LIMIT_SND(stcb->sctp_socket))) {
 		/* It will NEVER fit */
 		SCTP_LTRACE_ERR_RET(NULL, stcb, net, SCTP_FROM_SCTP_OUTPUT, EMSGSIZE);
 		error = EMSGSIZE;
@@ -13087,20 +13112,20 @@ sctp_lower_sosend(struct socket *so,
 	}
 
 	if (user_marks_eor) {
-		local_add_more = min(SCTP_SB_LIMIT_SND(so), SCTP_BASE_SYSCTL(sctp_add_more_threshold));
+		local_add_more = (ssize_t)min(SCTP_SB_LIMIT_SND(so), SCTP_BASE_SYSCTL(sctp_add_more_threshold));
 	} else {
 		/*-
 		 * For non-eeor the whole message must fit in
 		 * the socket send buffer.
 		 */
-		local_add_more = (uint32_t)sndlen;
+		local_add_more = sndlen;
 	}
 	len = 0;
 	if (non_blocking) {
 		goto skip_preblock;
 	}
 	if (((max_len <= local_add_more) &&
-	    (SCTP_SB_LIMIT_SND(so) >= local_add_more)) ||
+	    ((ssize_t)SCTP_SB_LIMIT_SND(so) >= local_add_more)) ||
 	    (max_len == 0) ||
 	    ((stcb->asoc.chunks_on_out_queue + stcb->asoc.stream_queue_cnt) >= SCTP_BASE_SYSCTL(sctp_max_chunks_on_queue))) {
 		/* No room right now ! */
@@ -13108,7 +13133,7 @@ sctp_lower_sosend(struct socket *so,
 		inqueue_bytes = stcb->asoc.total_output_queue_size - (stcb->asoc.chunks_on_out_queue * SCTP_DATA_CHUNK_OVERHEAD(stcb));
 		while ((SCTP_SB_LIMIT_SND(so) < (inqueue_bytes + local_add_more)) ||
 		    ((stcb->asoc.stream_queue_cnt + stcb->asoc.chunks_on_out_queue) >= SCTP_BASE_SYSCTL(sctp_max_chunks_on_queue))) {
-			SCTPDBG(SCTP_DEBUG_OUTPUT1, "pre_block limit:%u <(inq:%d + %d) || (%d+%d > %d)\n",
+			SCTPDBG(SCTP_DEBUG_OUTPUT1, "pre_block limit:%u <(inq:%d + %zd) || (%d+%d > %d)\n",
 			    (unsigned int)SCTP_SB_LIMIT_SND(so),
 			    inqueue_bytes,
 			    local_add_more,
@@ -13241,7 +13266,7 @@ skip_preblock:
 			else
 				max_len = 0;
 
-			if ((max_len > SCTP_BASE_SYSCTL(sctp_add_more_threshold)) ||
+			if ((max_len > (ssize_t)SCTP_BASE_SYSCTL(sctp_add_more_threshold)) ||
 			    (max_len && (SCTP_SB_LIMIT_SND(so) < SCTP_BASE_SYSCTL(sctp_add_more_threshold))) ||
 			    (uio->uio_resid && (uio->uio_resid <= max_len))) {
 				sndout = 0;

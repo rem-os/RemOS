@@ -789,7 +789,6 @@ out1:
 	for (loc = 0; loc < len; loc++) {
 		error = bread(vp, blkno + loc, fs->fs_bsize, KERNCRED, &nbp);
 		if (error) {
-			brelse(nbp);
 			fs->fs_snapinum[snaploc] = 0;
 			free(snapblklist, M_UFSMNT);
 			goto done;
@@ -900,7 +899,7 @@ cgaccount(cg, vp, nbp, passno)
 
 	ip = VTOI(vp);
 	fs = ITOFS(ip);
-	if ((error = ffs_getcg(fs, ITODEVVP(ip), cg, &bp, &cgp)) != 0)
+	if ((error = ffs_getcg(fs, ITODEVVP(ip), cg, 0, &bp, &cgp)) != 0)
 		return (error);
 	UFS_LOCK(ITOUMP(ip));
 	ACTIVESET(fs, cg);

@@ -248,7 +248,6 @@ statfs_scale_blocks(struct statfs *sf, long max_size)
 static int
 kern_do_statfs(struct thread *td, struct mount *mp, struct statfs *buf)
 {
-	struct statfs *sp;
 	int error;
 
 	if (mp == NULL)
@@ -262,17 +261,9 @@ kern_do_statfs(struct thread *td, struct mount *mp, struct statfs *buf)
 	if (error != 0)
 		goto out;
 #endif
-	/*
-	 * Set these in case the underlying filesystem fails to do so.
-	 */
-	sp = &mp->mnt_stat;
-	sp->f_version = STATFS_VERSION;
-	sp->f_namemax = NAME_MAX;
-	sp->f_flags = mp->mnt_flag & MNT_VISFLAGMASK;
-	error = VFS_STATFS(mp, sp);
+	error = VFS_STATFS(mp, buf);
 	if (error != 0)
 		goto out;
-	*buf = *sp;
 	if (priv_check(td, PRIV_VFS_GENERATION)) {
 		buf->f_fsid.val[0] = buf->f_fsid.val[1] = 0;
 		prison_enforce_statfs(td->td_ucred, mp, buf);
@@ -475,13 +466,6 @@ restart:
 		}
 		if (sfsp != NULL && count < maxcount) {
 			sp = &mp->mnt_stat;
-			/*
-			 * Set these in case the underlying filesystem
-			 * fails to do so.
-			 */
-			sp->f_version = STATFS_VERSION;
-			sp->f_namemax = NAME_MAX;
-			sp->f_flags = mp->mnt_flag & MNT_VISFLAGMASK;
 			/*
 			 * If MNT_NOWAIT is specified, do not refresh
 			 * the fsstat cache.
@@ -4545,7 +4529,6 @@ sys_fhstatfs(struct thread *td, struct fhstatfs_args *uap)
 int
 kern_fhstatfs(struct thread *td, fhandle_t fh, struct statfs *buf)
 {
-	struct statfs *sp;
 	struct mount *mp;
 	struct vnode *vp;
 	int error;
@@ -4569,16 +4552,7 @@ kern_fhstatfs(struct thread *td, fhandle_t fh, struct statfs *buf)
 	if (error != 0)
 		goto out;
 #endif
-	/*
-	 * Set these in case the underlying filesystem fails to do so.
-	 */
-	sp = &mp->mnt_stat;
-	sp->f_version = STATFS_VERSION;
-	sp->f_namemax = NAME_MAX;
-	sp->f_flags = mp->mnt_flag & MNT_VISFLAGMASK;
-	error = VFS_STATFS(mp, sp);
-	if (error == 0)
-		*buf = *sp;
+	error = VFS_STATFS(mp, buf);
 out:
 	vfs_unbusy(mp);
 	return (error);
@@ -4864,7 +4838,7 @@ kern_copy_file_range(struct thread *td, int infd, off_t *inoffp, int outfd,
 	outvp = outfp->f_vnode;
 	/* Sanity check the f_flag bits. */
 	if ((outfp->f_flag & (FWRITE | FAPPEND)) != FWRITE ||
-	    (infp->f_flag & FREAD) == 0 || invp == outvp) {
+	    (infp->f_flag & FREAD) == 0) {
 		error = EBADF;
 		goto out;
 	}
@@ -4872,6 +4846,17 @@ kern_copy_file_range(struct thread *td, int infd, off_t *inoffp, int outfd,
 	/* If len == 0, just return 0. */
 	if (len == 0)
 		goto out;
+
+	/*
+	 * If infp and outfp refer to the same file, the byte ranges cannot
+	 * overlap.
+	 */
+	if (invp == outvp && ((savinoff <= savoutoff && savinoff + len >
+	    savoutoff) || (savinoff > savoutoff && savoutoff + len >
+	    savinoff))) {
+		error = EINVAL;
+		goto out;
+	}
 
 	/* Range lock the byte ranges for both invp and outvp. */
 	for (;;) {

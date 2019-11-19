@@ -189,9 +189,11 @@ local const config configuration_table[10] = {
  * Initialize the hash table (avoiding 64K overflow for 16 bit systems).
  * prev[] will be initialized on the fly.
  */
-#define CLEAR_HASH(s) do { \
-    s->head[s->hash_size-1] = NIL; \
-    zmemzero((Bytef *)s->head, (unsigned)(s->hash_size-1)*sizeof(*s->head)); \
+#define CLEAR_HASH(s) \
+    do { \
+        s->head[s->hash_size-1] = NIL; \
+        zmemzero((Bytef *)s->head, \
+                 (unsigned)(s->hash_size-1)*sizeof(*s->head)); \
     } while (0)
 
 /* ===========================================================================
@@ -266,7 +268,7 @@ int ZEXPORT deflateInit2_(strm, level, method, windowBits, memLevel, strategy,
 
     strm->msg = Z_NULL;
     if (strm->zalloc == (alloc_func)0) {
-#ifdef Z_SOLO
+#if defined(Z_SOLO) && !defined(_KERNEL)
         return Z_STREAM_ERROR;
 #else
         strm->zalloc = zcalloc;
@@ -274,7 +276,7 @@ int ZEXPORT deflateInit2_(strm, level, method, windowBits, memLevel, strategy,
 #endif
     }
     if (strm->zfree == (free_func)0)
-#ifdef Z_SOLO
+#if defined(Z_SOLO) && !defined(_KERNEL)
         return Z_STREAM_ERROR;
 #else
         strm->zfree = zcfree;

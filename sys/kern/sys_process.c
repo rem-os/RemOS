@@ -286,7 +286,7 @@ proc_rwmem(struct proc *p, struct uio *uio)
 		/*
 		 * Fault and hold the page on behalf of the process.
 		 */
-		error = vm_fault_hold(map, pageno, reqprot, fault_flags, &m);
+		error = vm_fault(map, pageno, reqprot, fault_flags, &m);
 		if (error != KERN_SUCCESS) {
 			if (error == KERN_RESOURCE_SHORTAGE)
 				error = ENOMEM;
@@ -312,10 +312,7 @@ proc_rwmem(struct proc *p, struct uio *uio)
 		/*
 		 * Release the page.
 		 */
-		vm_page_lock(m);
-		if (vm_page_unwire(m, PQ_ACTIVE) && m->object == NULL)
-			vm_page_free(m);
-		vm_page_unlock(m);
+		vm_page_unwire(m, PQ_ACTIVE);
 
 	} while (error == 0 && uio->uio_resid > 0);
 
@@ -385,21 +382,18 @@ ptrace_vm_entry(struct thread *td, struct proc *p, struct ptrace_vm_entry *pve)
 	vm_map_lock_read(map);
 
 	do {
-		entry = map->header.next;
-		index = 0;
-		while (index < pve->pve_entry && entry != &map->header) {
-			entry = entry->next;
-			index++;
-		}
-		if (index != pve->pve_entry) {
-			error = EINVAL;
-			break;
-		}
 		KASSERT((map->header.eflags & MAP_ENTRY_IS_SUB_MAP) == 0,
 		    ("Submap in map header"));
-		while ((entry->eflags & MAP_ENTRY_IS_SUB_MAP) != 0) {
-			entry = entry->next;
+		index = 0;
+		VM_MAP_ENTRY_FOREACH(entry, map) {
+			if (index >= pve->pve_entry &&
+			    (entry->eflags & MAP_ENTRY_IS_SUB_MAP) == 0)
+				break;
 			index++;
+		}
+		if (index < pve->pve_entry) {
+			error = EINVAL;
+			break;
 		}
 		if (entry == &map->header) {
 			error = ENOENT;
@@ -958,9 +952,7 @@ kern_ptrace(struct thread *td, int req, pid_t pid, void *addr, int data)
 		 * on a "detach".
 		 */
 		proc_set_traced(p, true);
-		if (p->p_pptr != td->td_proc) {
-			proc_reparent(p, td->td_proc, false);
-		}
+		proc_reparent(p, td->td_proc, false);
 		CTR2(KTR_PTRACE, "PT_ATTACH: pid %d, oppid %d", p->p_pid,
 		    p->p_oppid);
 
@@ -1109,7 +1101,7 @@ kern_ptrace(struct thread *td, int req, pid_t pid, void *addr, int data)
 		    p->p_pid, psr->sr_error, psr->sr_retval[0],
 		    psr->sr_retval[1]);
 		break;
-		
+
 	case PT_STEP:
 	case PT_CONTINUE:
 	case PT_TO_SCE:
@@ -1219,8 +1211,8 @@ kern_ptrace(struct thread *td, int req, pid_t pid, void *addr, int data)
 
 	sendsig:
 		MPASS(proctree_locked == 0);
-		
-		/* 
+
+		/*
 		 * Clear the pending event for the thread that just
 		 * reported its event (p_xthread).  This may not be
 		 * the thread passed to PT_CONTINUE, PT_STEP, etc. if

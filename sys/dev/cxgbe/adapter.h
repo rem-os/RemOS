@@ -1142,7 +1142,6 @@ void t4_os_link_changed(struct port_info *);
 void t4_iterate(void (*)(struct adapter *, void *), void *);
 void t4_init_devnames(struct adapter *);
 void t4_add_adapter(struct adapter *);
-void t4_aes_getdeckey(void *, const void *, unsigned int);
 int t4_detach_common(device_t);
 int t4_map_bars_0_and_4(struct adapter *);
 int t4_map_bar_2(struct adapter *);
@@ -1155,13 +1154,12 @@ int update_mac_settings(struct ifnet *, int);
 int adapter_full_init(struct adapter *);
 int adapter_full_uninit(struct adapter *);
 uint64_t cxgbe_get_counter(struct ifnet *, ift_counter);
+void cxgbe_snd_tag_init(struct cxgbe_snd_tag *, struct ifnet *, int);
 int vi_full_init(struct vi_info *);
 int vi_full_uninit(struct vi_info *);
 void vi_sysctls(struct vi_info *);
 void vi_tick(void *);
 int rw_via_memwin(struct adapter *, int, uint32_t, uint32_t *, int, int);
-int alloc_atid_tab(struct tid_info *, int);
-void free_atid_tab(struct tid_info *);
 int alloc_atid(struct adapter *, void *);
 void *lookup_atid(struct adapter *, int);
 void free_atid(struct adapter *, int);
@@ -1170,6 +1168,15 @@ int cxgbe_media_change(struct ifnet *);
 void cxgbe_media_status(struct ifnet *, struct ifmediareq *);
 bool t4_os_dump_cimla(struct adapter *, int, bool);
 void t4_os_dump_devlog(struct adapter *);
+
+/* t4_keyctx.c */
+struct auth_hash;
+union authctx;
+
+void t4_aes_getdeckey(void *, const void *, unsigned int);
+void t4_copy_partial_hash(int, union authctx *, void *);
+void t4_init_gmac_hash(const char *, int, char *);
+void t4_init_hmac_digest(struct auth_hash *, u_int, char *, int, char *);
 
 #ifdef DEV_NETMAP
 /* t4_netmap.c */
@@ -1214,7 +1221,7 @@ void t4_register_cpl_handler(int, cpl_handler_t);
 void t4_register_shared_cpl_handler(int, cpl_handler_t, int);
 #ifdef RATELIMIT
 int ethofld_transmit(struct ifnet *, struct mbuf *);
-void send_etid_flush_wr(struct cxgbe_snd_tag *);
+void send_etid_flush_wr(struct cxgbe_rate_tag *);
 #endif
 
 /* t4_tracer.c */
@@ -1240,13 +1247,13 @@ int sysctl_tc_params(SYSCTL_HANDLER_ARGS);
 #ifdef RATELIMIT
 void t4_init_etid_table(struct adapter *);
 void t4_free_etid_table(struct adapter *);
-struct cxgbe_snd_tag *lookup_etid(struct adapter *, int);
-int cxgbe_snd_tag_alloc(struct ifnet *, union if_snd_tag_alloc_params *,
+struct cxgbe_rate_tag *lookup_etid(struct adapter *, int);
+int cxgbe_rate_tag_alloc(struct ifnet *, union if_snd_tag_alloc_params *,
     struct m_snd_tag **);
-int cxgbe_snd_tag_modify(struct m_snd_tag *, union if_snd_tag_modify_params *);
-int cxgbe_snd_tag_query(struct m_snd_tag *, union if_snd_tag_query_params *);
-void cxgbe_snd_tag_free(struct m_snd_tag *);
-void cxgbe_snd_tag_free_locked(struct cxgbe_snd_tag *);
+int cxgbe_rate_tag_modify(struct m_snd_tag *, union if_snd_tag_modify_params *);
+int cxgbe_rate_tag_query(struct m_snd_tag *, union if_snd_tag_query_params *);
+void cxgbe_rate_tag_free(struct m_snd_tag *);
+void cxgbe_rate_tag_free_locked(struct cxgbe_rate_tag *);
 void cxgbe_ratelimit_query(struct ifnet *, struct if_ratelimit_query_results *);
 #endif
 
