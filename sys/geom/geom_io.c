@@ -83,9 +83,9 @@ static struct g_bioq g_bio_run_up;
  * pressures exist. See g_io_schedule_down() for more details
  * and limitations.
  */
-static volatile u_int pace;
+static volatile u_int __read_mostly pace;
 
-static uma_zone_t	biozone;
+static uma_zone_t __read_mostly biozone;
 
 /*
  * The head of the list of classifiers used in g_io_request.
@@ -93,8 +93,8 @@ static uma_zone_t	biozone;
  * to add/remove entries to the list.
  * Classifiers are invoked in registration order.
  */
-static TAILQ_HEAD(g_classifier_tailq, g_classifier_hook)
-    g_classifier_tailq = TAILQ_HEAD_INITIALIZER(g_classifier_tailq);
+static TAILQ_HEAD(, g_classifier_hook) g_classifier_tailq __read_mostly =
+    TAILQ_HEAD_INITIALIZER(g_classifier_tailq);
 
 #include <machine/atomic.h>
 
@@ -336,6 +336,42 @@ g_io_zonecmd(struct disk_zone_args *zone_args, struct g_consumer *cp)
 	g_io_request(bp, cp);
 	error = biowait(bp, "gzone");
 	bcopy(&bp->bio_zone, zone_args, sizeof(*zone_args));
+	g_destroy_bio(bp);
+	return (error);
+}
+
+/*
+ * Send a BIO_SPEEDUP down the stack. This is used to tell the lower layers that
+ * the upper layers have detected a resource shortage. The lower layers are
+ * advised to stop delaying I/O that they might be holding for performance
+ * reasons and to schedule it (non-trims) or complete it successfully (trims) as
+ * quickly as it can. bio_length is the amount of the shortage.  This call
+ * should be non-blocking. bio_resid is used to communicate back if the lower
+ * layers couldn't find bio_length worth of I/O to schedule or discard. A length
+ * of 0 means to do as much as you can (schedule the h/w queues full, discard
+ * all trims). flags are a hint from the upper layers to the lower layers what
+ * operation should be done.
+ */
+int
+g_io_speedup(size_t shortage, u_int flags, size_t *resid, struct g_consumer *cp)
+{
+	struct bio *bp;
+	int error;
+
+	KASSERT((flags & (BIO_SPEEDUP_TRIM | BIO_SPEEDUP_WRITE)) != 0,
+	    ("Invalid flags passed to g_io_speedup: %#x", flags));
+	g_trace(G_T_BIO, "bio_speedup(%s, %zu, %#x)", cp->provider->name,
+	    shortage, flags);
+	bp = g_new_bio();
+	if (bp == NULL)
+		return (ENOMEM);
+	bp->bio_cmd = BIO_SPEEDUP;
+	bp->bio_length = shortage;
+	bp->bio_done = NULL;
+	bp->bio_flags |= flags;
+	g_io_request(bp, cp);
+	error = biowait(bp, "gflush");
+	*resid = bp->bio_resid;
 	g_destroy_bio(bp);
 	return (error);
 }

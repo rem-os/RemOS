@@ -396,7 +396,7 @@ null_lookup(struct vop_lookup_args *ap)
 	 * doomed state and return error.
 	 */
 	if ((error == 0 || error == EJUSTRETURN) &&
-	    (dvp->v_iflag & VI_DOOMED) != 0) {
+	    VN_IS_DOOMED(dvp)) {
 		error = ENOENT;
 		if (lvp != NULL)
 			vput(lvp);
@@ -943,3 +943,4 @@ struct vop_vector null_vnodeops = {
 	.vop_vptofh =		null_vptofh,
 	.vop_add_writecount =	null_add_writecount,
 };
+VFS_VOP_VECTOR_REGISTER(null_vnodeops);

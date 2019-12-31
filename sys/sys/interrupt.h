@@ -55,7 +55,6 @@ struct intr_handler {
 	int		 ih_need;	/* Needs service. */
 	CK_SLIST_ENTRY(intr_handler) ih_next; /* Next handler for this event. */
 	u_char		 ih_pri;	/* Priority of this handler. */
-	struct intr_thread *ih_thread;	/* Ithread for filtered handler. */
 };
 
 /* Interrupt handle flags kept in ih_flags */
@@ -152,7 +151,6 @@ struct intr_event {
 struct proc;
 
 extern struct	intr_event *tty_intr_event;
-extern struct	intr_event *clk_intr_event;
 extern void	*vm_ih;
 
 /* Counts and names for statistics (defined in MD code). */

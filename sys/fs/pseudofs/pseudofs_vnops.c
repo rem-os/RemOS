@@ -290,7 +290,7 @@ pfs_ioctl(struct vop_ioctl_args *va)
 
 	vn = va->a_vp;
 	vn_lock(vn, LK_SHARED | LK_RETRY);
-	if (vn->v_iflag & VI_DOOMED) {
+	if (VN_IS_DOOMED(vn)) {
 		VOP_UNLOCK(vn, 0);
 		return (EBADF);
 	}
@@ -512,7 +512,7 @@ pfs_lookup(struct vop_cachedlookup_args *va)
 			vfs_rel(mp);
 			if (error != 0)
 				PFS_RETURN(ENOENT);
-			if (vn->v_iflag & VI_DOOMED) {
+			if (VN_IS_DOOMED(vn)) {
 				vfs_unbusy(mp);
 				PFS_RETURN(ENOENT);
 			}
@@ -581,13 +581,13 @@ pfs_lookup(struct vop_cachedlookup_args *va)
 	if (cnp->cn_flags & ISDOTDOT) {
 		vfs_unbusy(mp);
 		vn_lock(vn, LK_EXCLUSIVE | LK_RETRY);
-		if (vn->v_iflag & VI_DOOMED) {
+		if (VN_IS_DOOMED(vn)) {
 			vput(*vpp);
 			*vpp = NULL;
 			PFS_RETURN(ENOENT);
 		}
 	}
-	if (cnp->cn_flags & MAKEENTRY && !(vn->v_iflag & VI_DOOMED))
+	if (cnp->cn_flags & MAKEENTRY && !VN_IS_DOOMED(vn))
 		cache_enter(vn, *vpp, cnp);
 	PFS_RETURN (0);
  failed:
@@ -1095,3 +1095,4 @@ struct vop_vector pfs_vnodeops = {
 	.vop_write =		pfs_write,
 	/* XXX I've probably forgotten a few that need VOP_EOPNOTSUPP */
 };
+VFS_VOP_VECTOR_REGISTER(pfs_vnodeops);

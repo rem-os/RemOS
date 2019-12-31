@@ -198,7 +198,7 @@ uiomove_object_page(vm_object_t obj, size_t len, struct uio *uio)
 	 * type object.
 	 */
 	rv = vm_page_grab_valid(&m, obj, idx,
-	    VM_ALLOC_NORMAL | VM_ALLOC_WIRED | VM_ALLOC_NOBUSY);
+	    VM_ALLOC_NORMAL | VM_ALLOC_SBUSY | VM_ALLOC_IGN_SBUSY);
 	if (rv != VM_PAGER_OK) {
 		VM_OBJECT_WUNLOCK(obj);
 		printf("uiomove_object: vm_obj %p idx %jd pager error %d\n",
@@ -207,13 +207,12 @@ uiomove_object_page(vm_object_t obj, size_t len, struct uio *uio)
 	}
 	VM_OBJECT_WUNLOCK(obj);
 	error = uiomove_fromphys(&m, offset, tlen, uio);
-	if (uio->uio_rw == UIO_WRITE && error == 0) {
-		VM_OBJECT_WLOCK(obj);
-		vm_page_dirty(m);
-		vm_pager_page_unswapped(m);
-		VM_OBJECT_WUNLOCK(obj);
-	}
-	vm_page_unwire(m, PQ_ACTIVE);
+	if (uio->uio_rw == UIO_WRITE && error == 0)
+		vm_page_set_dirty(m);
+	vm_page_lock(m);
+	vm_page_activate(m);
+	vm_page_unlock(m);
+	vm_page_sunbusy(m);
 
 	return (error);
 }
@@ -527,9 +526,8 @@ retry:
 				pmap_zero_page_area(m, base, PAGE_SIZE - base);
 				KASSERT(vm_page_all_valid(m),
 				    ("shm_dotruncate: page %p is invalid", m));
-				vm_page_dirty(m);
+				vm_page_set_dirty(m);
 				vm_page_xunbusy(m);
-				vm_pager_page_unswapped(m);
 			}
 		}
 		delta = IDX_TO_OFF(object->size - nobjsize);
@@ -597,11 +595,6 @@ shm_alloc(struct ucred *ucred, mode_t mode)
 	shmfd->shm_object = vm_pager_allocate(OBJT_SWAP, NULL,
 	    shmfd->shm_size, VM_PROT_DEFAULT, 0, ucred);
 	KASSERT(shmfd->shm_object != NULL, ("shm_create: vm_pager_allocate"));
-	shmfd->shm_object->pg_color = 0;
-	VM_OBJECT_WLOCK(shmfd->shm_object);
-	vm_object_clear_flag(shmfd->shm_object, OBJ_ONEMAPPING);
-	vm_object_set_flag(shmfd->shm_object, OBJ_COLORED | OBJ_NOSPLIT);
-	VM_OBJECT_WUNLOCK(shmfd->shm_object);
 	vfs_timestamp(&shmfd->shm_birthtime);
 	shmfd->shm_atime = shmfd->shm_mtime = shmfd->shm_ctime =
 	    shmfd->shm_birthtime;
