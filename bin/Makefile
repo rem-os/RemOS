@@ -29,7 +29,6 @@ SUBDIR= cat \
 	ps \
 	pwait \
 	pwd \
-	rc-status \
 	realpath \
 	rm \
 	rmdir \

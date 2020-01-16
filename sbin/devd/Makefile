@@ -4,34 +4,28 @@
 
 WARNS?= 3
 PACKAGE=utilities
-CONFGROUPS=	CONFS DEVD DEVDOPENRC
-CONFS=	devd.conf devd-openrc.conf
+CONFGROUPS=	CONFS DEVD
+CONFS=	devd.conf
 DEVD=	devmatch.conf
-DEVDOPENRC=	devmatch-openrc.conf
 DEVDDIR=	/etc/devd
-DEVDOPENRCDIR=	/etc/devd-openrc
 .if ${MK_ACPI} != "no"
 DEVD+=	asus.conf
-DEVDOPENRC+=	asus.conf
 .endif
 
 .if ${MK_HYPERV} != "no"
 DEVD+=	hyperv.conf
-DEVDOPENRC+=	hyperv.conf
 .endif
 
 .if ${MK_USB} != "no"
 DEVD+=	uath.conf ulpt.conf
-DEVDOPENRC+=	uath.conf ulpt.conf
 .endif
 
 .if ${MACHINE_ARCH} == "powerpc"
 DEVD+=	apple.conf
-DEVDOPENRC+=	apple.conf
 .endif
 
 .if ${MK_ZFS} != "no"
-DEVDOPENRC+=	zfs.conf
+DEVD+=	zfs.conf
 .endif
 
 PROG_CXX=devd

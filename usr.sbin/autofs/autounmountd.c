@@ -272,7 +272,7 @@ main_autounmountd(int argc, char **argv)
 	time_t expiration_time = 600, retry_time = 600, mounted_max, sleep_time;
 	bool dont_daemonize = false;
 
-	while ((ch = getopt(argc, argv, "dr:t:vD")) != -1) {
+	while ((ch = getopt(argc, argv, "dr:t:v")) != -1) {
 		switch (ch) {
 		case 'd':
 			dont_daemonize = true;
@@ -286,9 +286,6 @@ main_autounmountd(int argc, char **argv)
 			break;
 		case 'v':
 			debug++;
-			break;
-		case 'D':
-			dont_daemonize = true;
 			break;
 		case '?':
 		default:

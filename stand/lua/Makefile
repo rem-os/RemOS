@@ -14,8 +14,6 @@ MAN=	cli.lua.8 \
 
 FILESDIR=	${LUAPATH}
 FILES=	cli.lua \
-    brand-trident.lua \
-    brand-trueos.lua \
 	color.lua \
 	config.lua \
 	core.lua \
@@ -27,7 +25,6 @@ FILES=	cli.lua \
 	logo-fbsdbw.lua \
 	logo-orb.lua \
 	logo-orbbw.lua \
-	logo-trident.lua \
 	menu.lua \
 	password.lua \
 	screen.lua
