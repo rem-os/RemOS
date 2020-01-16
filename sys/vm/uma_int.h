@@ -139,6 +139,67 @@
 /* Max waste percentage before going to off page slab management */
 #define UMA_MAX_WASTE	10
 
+/* Max size of a CACHESPREAD slab. */
+#define	UMA_CACHESPREAD_MAX_SIZE	(128 * 1024)
+
+/*
+ * These flags must not overlap with the UMA_ZONE flags specified in uma.h.
+ */
+#define	UMA_ZFLAG_OFFPAGE	0x00200000	/*
+						 * Force the slab structure
+						 * allocation off of the real
+						 * memory.
+						 */
+#define	UMA_ZFLAG_HASH		0x00400000	/*
+						 * Use a hash table instead of
+						 * caching information in the
+						 * vm_page.
+						 */
+#define	UMA_ZFLAG_VTOSLAB	0x00800000	/*
+						 * Zone uses vtoslab for
+						 * lookup.
+						 */
+#define	UMA_ZFLAG_CTORDTOR	0x01000000	/* Zone has ctor/dtor set. */
+#define	UMA_ZFLAG_LIMIT		0x02000000	/* Zone has limit set. */
+#define	UMA_ZFLAG_CACHE		0x04000000	/* uma_zcache_create()d it */
+#define	UMA_ZFLAG_RECLAIMING	0x08000000	/* Running zone_reclaim(). */
+#define	UMA_ZFLAG_BUCKET	0x10000000	/* Bucket zone. */
+#define	UMA_ZFLAG_INTERNAL	0x20000000	/* No offpage no PCPU. */
+#define	UMA_ZFLAG_TRASH		0x40000000	/* Add trash ctor/dtor. */
+#define	UMA_ZFLAG_CACHEONLY	0x80000000	/* Don't ask VM for buckets. */
+
+#define	UMA_ZFLAG_INHERIT						\
+    (UMA_ZFLAG_OFFPAGE | UMA_ZFLAG_HASH | UMA_ZFLAG_VTOSLAB |		\
+     UMA_ZFLAG_BUCKET | UMA_ZFLAG_INTERNAL | UMA_ZFLAG_CACHEONLY)
+
+#define	PRINT_UMA_ZFLAGS	"\20"	\
+    "\40CACHEONLY"			\
+    "\37TRASH"				\
+    "\36INTERNAL"			\
+    "\35BUCKET"				\
+    "\34RECLAIMING"			\
+    "\33CACHE"				\
+    "\32LIMIT"				\
+    "\31CTORDTOR"			\
+    "\30VTOSLAB"			\
+    "\27HASH"				\
+    "\26OFFPAGE"			\
+    "\22ROUNDROBIN"			\
+    "\21FIRSTTOUCH"			\
+    "\20PCPU"				\
+    "\17NODUMP"				\
+    "\16CACHESPREAD"			\
+    "\15MINBUCKET"			\
+    "\14MAXBUCKET"			\
+    "\13NOBUCKET"			\
+    "\12SECONDARY"			\
+    "\11NOTPAGE"			\
+    "\10VM"				\
+    "\7MTXCLASS"			\
+    "\6NOFREE"				\
+    "\5MALLOC"				\
+    "\4NOTOUCH"				\
+    "\2ZINIT"
 
 /*
  * Hash table for freed address -> slab translation.
@@ -152,10 +213,10 @@
 
 #define UMA_HASH_INSERT(h, s, mem)					\
 	LIST_INSERT_HEAD(&(h)->uh_slab_hash[UMA_HASH((h),		\
-	    (mem))], (uma_hash_slab_t)(s), uhs_hlink)
+	    (mem))], slab_tohashslab(s), uhs_hlink)
 
 #define UMA_HASH_REMOVE(h, s)						\
-	LIST_REMOVE((uma_hash_slab_t)(s), uhs_hlink)
+	LIST_REMOVE(slab_tohashslab(s), uhs_hlink)
 
 LIST_HEAD(slabhashhead, uma_hash_slab);
 
@@ -290,7 +351,6 @@ struct uma_keg {
 
 	u_long		uk_offset;	/* Next free offset from base KVA */
 	vm_offset_t	uk_kva;		/* Zone base KVA */
-	uma_zone_t	uk_slabzone;	/* Slab zone backing us, if OFFPAGE */
 
 	uint32_t	uk_pgoff;	/* Offset to uma_slab struct */
 	uint16_t	uk_ppera;	/* pages per allocation from backend */
@@ -316,7 +376,6 @@ typedef struct uma_keg	* uma_keg_t;
  */
 #define	SLAB_MAX_SETSIZE	(PAGE_SIZE / UMA_SMALLEST_UNIT)
 #define	SLAB_MIN_SETSIZE	_BITSET_BITS
-BITSET_DEFINE(slabbits, SLAB_MAX_SETSIZE);
 BITSET_DEFINE(noslabbits, 0);
 
 /*
@@ -358,25 +417,28 @@ int slab_ipers(size_t size, int align);
  * HASH and OFFPAGE zones.
  */
 struct uma_hash_slab {
-	struct uma_slab		uhs_slab;	/* Must be first. */
-	struct slabbits		uhs_bits1;	/* Must be second. */
-#ifdef INVARIANTS
-	struct slabbits		uhs_bits2;	/* Must be third. */
-#endif
 	LIST_ENTRY(uma_hash_slab) uhs_hlink;	/* Link for hash table */
 	uint8_t			*uhs_data;	/* First item */
+	struct uma_slab		uhs_slab;	/* Must be last. */
 };
 
 typedef struct uma_hash_slab * uma_hash_slab_t;
+
+static inline uma_hash_slab_t
+slab_tohashslab(uma_slab_t slab)
+{
+
+	return (__containerof(slab, struct uma_hash_slab, uhs_slab));
+}
 
 static inline void *
 slab_data(uma_slab_t slab, uma_keg_t keg)
 {
 
-	if ((keg->uk_flags & UMA_ZONE_OFFPAGE) == 0)
+	if ((keg->uk_flags & UMA_ZFLAG_OFFPAGE) == 0)
 		return ((void *)((uintptr_t)slab - keg->uk_pgoff));
 	else
-		return (((uma_hash_slab_t)slab)->uhs_data);
+		return (slab_tohashslab(slab)->uhs_data);
 }
 
 static inline void *
@@ -475,50 +537,6 @@ struct uma_zone {
 
 	/* uz_domain follows here. */
 };
-
-/*
- * These flags must not overlap with the UMA_ZONE flags specified in uma.h.
- */
-#define	UMA_ZFLAG_CTORDTOR	0x01000000	/* Zone has ctor/dtor set. */
-#define	UMA_ZFLAG_LIMIT		0x02000000	/* Zone has limit set. */
-#define	UMA_ZFLAG_CACHE		0x04000000	/* uma_zcache_create()d it */
-#define	UMA_ZFLAG_RECLAIMING	0x08000000	/* Running zone_reclaim(). */
-#define	UMA_ZFLAG_BUCKET	0x10000000	/* Bucket zone. */
-#define UMA_ZFLAG_INTERNAL	0x20000000	/* No offpage no PCPU. */
-#define UMA_ZFLAG_TRASH		0x40000000	/* Add trash ctor/dtor. */
-#define UMA_ZFLAG_CACHEONLY	0x80000000	/* Don't ask VM for buckets. */
-
-#define	UMA_ZFLAG_INHERIT						\
-    (UMA_ZFLAG_INTERNAL | UMA_ZFLAG_CACHEONLY | UMA_ZFLAG_BUCKET)
-
-#define	PRINT_UMA_ZFLAGS	"\20"	\
-    "\40CACHEONLY"			\
-    "\37TRASH"				\
-    "\36INTERNAL"			\
-    "\35BUCKET"				\
-    "\34RECLAIMING"			\
-    "\33CACHE"				\
-    "\32LIMIT"				\
-    "\31CTORDTOR"			\
-    "\23ROUNDROBIN"			\
-    "\22FIRSTTOUCH"			\
-    "\21MINBUCKET"			\
-    "\20PCPU"				\
-    "\17NODUMP"				\
-    "\16VTOSLAB"			\
-    "\15CACHESPREAD"			\
-    "\14MAXBUCKET"			\
-    "\13NOBUCKET"			\
-    "\12SECONDARY"			\
-    "\11HASH"				\
-    "\10VM"				\
-    "\7MTXCLASS"			\
-    "\6NOFREE"				\
-    "\5MALLOC"				\
-    "\4OFFPAGE"				\
-    "\3STATIC"				\
-    "\2ZINIT"				\
-    "\1PAGEABLE"
 
 /*
  * Macros for interpreting the uz_items field.  20 bits of sleeper count

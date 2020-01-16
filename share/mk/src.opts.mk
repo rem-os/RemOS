@@ -108,6 +108,7 @@ __DEFAULT_YES_OPTIONS = \
     GDB \
     GNU_DIFF \
     GNU_GREP \
+    GOOGLETEST \
     GPIO \
     HAST \
     HTML \
@@ -128,6 +129,7 @@ __DEFAULT_YES_OPTIONS = \
     LIBPTHREAD \
     LIBTHR \
     LLVM_COV \
+    LLVM_LIBUNWIND \
     LLVM_TARGET_ALL \
     LOADER_GELI \
     LOADER_LUA \
@@ -265,15 +267,6 @@ __TT=${TARGET}
 __TT=${MACHINE}
 .endif
 
-# Default GOOGLETEST to off for MIPS while LLVM PR 43263 is active.  Part
-# of the fusefs tests trigger excessively long compile times.  It does
-# eventually succeed, but this shouldn't be forced on those building by default.
-.if ${__TT} == "mips"
-__DEFAULT_NO_OPTIONS+=	GOOGLETEST
-.else
-__DEFAULT_YES_OPTIONS+=	GOOGLETEST
-.endif
-
 # All supported backends for LLVM_TARGET_XXX
 __LLVM_TARGETS= \
 		aarch64 \
@@ -303,8 +296,7 @@ __DEFAULT_NO_OPTIONS+=LLVM_TARGET_BPF
 # If the compiler is not C++11 capable, disable Clang.  External toolchain will
 # be required.
 
-.if ${COMPILER_FEATURES:Mc++11} && (${__TT} != "mips" && \
-    ${__TT} != "riscv" && ${__TT} != "sparc64")
+.if ${COMPILER_FEATURES:Mc++11} && (${__TT} != "mips" && ${__TT} != "sparc64")
 # Clang is enabled, and will be installed as the default /usr/bin/cc.
 __DEFAULT_YES_OPTIONS+=CLANG CLANG_BOOTSTRAP CLANG_IS_CC LLD
 .elif ${COMPILER_FEATURES:Mc++11} && ${__T} != "sparc64"
@@ -325,13 +317,8 @@ BROKEN_OPTIONS+=BINUTILS BINUTILS_BOOTSTRAP GCC GCC_BOOTSTRAP GDB
 .if ${__T:Mriscv*} != ""
 BROKEN_OPTIONS+=OFED
 .endif
-.if ${__T} != "armv6" && ${__T} != "armv7" && ${__T} != "sparc64"
-__DEFAULT_YES_OPTIONS+=LLVM_LIBUNWIND
-.else
-__DEFAULT_NO_OPTIONS+=LLVM_LIBUNWIND
-.endif
 .if ${__TT} != "mips" && ${__T} != "powerpc" && ${__T} != "powerpcspe" && \
-    ${__TT} != "riscv" && ${__T} != "sparc64"
+    ${__T} != "sparc64"
 __DEFAULT_YES_OPTIONS+=LLD_BOOTSTRAP LLD_IS_LD
 .else
 __DEFAULT_NO_OPTIONS+=LLD_BOOTSTRAP LLD_IS_LD
@@ -472,6 +459,7 @@ MK_CTF:=	no
 MK_OPENSSL:=	no
 MK_OPENSSH:=	no
 MK_KERBEROS:=	no
+MK_KERBEROS_SUPPORT:=	no
 .endif
 
 .if ${MK_CXX} == "no"
@@ -511,6 +499,7 @@ MK_NLS_CATALOGS:= no
 .if ${MK_OPENSSL} == "no"
 MK_OPENSSH:=	no
 MK_KERBEROS:=	no
+MK_KERBEROS_SUPPORT:=	no
 MK_LDNS:=	no
 .endif
 

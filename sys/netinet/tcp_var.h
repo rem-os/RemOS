@@ -767,7 +767,8 @@ SYSCTL_DECL(_net_inet_tcp_sack);
 MALLOC_DECLARE(M_TCPLOG);
 #endif
 
-extern	int tcp_log_in_vain;
+VNET_DECLARE(int, tcp_log_in_vain);
+#define	V_tcp_log_in_vain		VNET(tcp_log_in_vain)
 
 /*
  * Global TCP tunables shared between different stacks.
@@ -891,6 +892,7 @@ void	cc_ack_received(struct tcpcb *tp, struct tcphdr *th,
 			    uint16_t nsegs, uint16_t type);
 void 	cc_conn_init(struct tcpcb *tp);
 void 	cc_post_recovery(struct tcpcb *tp, struct tcphdr *th);
+void    cc_ecnpkt_handler(struct tcpcb *tp, struct tcphdr *th, uint8_t iptos);
 void	cc_cong_signal(struct tcpcb *tp, struct tcphdr *th, uint32_t type);
 #ifdef TCP_HHOOK
 void	hhook_run_tcp_est_in(struct tcpcb *tp,

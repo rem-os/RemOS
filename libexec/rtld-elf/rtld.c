@@ -88,9 +88,9 @@ extern void (*__cleanup)(void);
 static const char *basename(const char *);
 static void digest_dynamic1(Obj_Entry *, int, const Elf_Dyn **,
     const Elf_Dyn **, const Elf_Dyn **);
-static void digest_dynamic2(Obj_Entry *, const Elf_Dyn *, const Elf_Dyn *,
+static bool digest_dynamic2(Obj_Entry *, const Elf_Dyn *, const Elf_Dyn *,
     const Elf_Dyn *);
-static void digest_dynamic(Obj_Entry *, int);
+static bool digest_dynamic(Obj_Entry *, int);
 static Obj_Entry *digest_phdr(const Elf_Phdr *, int, caddr_t, const char *);
 static void distribute_static_tls(Objlist *, RtldLockState *);
 static Obj_Entry *dlcheck(void *);
@@ -514,12 +514,13 @@ _rtld(Elf_Addr *sp, func_ptr_type *exit_proc, Obj_Entry **objp)
 		    argv[i] = argv[i + rtld_argc];
 		*argcp -= rtld_argc;
 		environ = env = envp = argv + main_argc + 1;
+		dbg("move env from %p to %p", envp + rtld_argc, envp);
 		do {
 		    *envp = *(envp + rtld_argc);
-		    envp++;
-		} while (*envp != NULL);
+		}  while (*envp++ != NULL);
 		aux = auxp = (Elf_Auxinfo *)envp;
 		auxpf = (Elf_Auxinfo *)(envp + rtld_argc);
+		dbg("move aux from %p to %p", auxpf, aux);
 		/* XXXKIB insert place for AT_EXECPATH if not present */
 		for (;; auxp++, auxpf++) {
 		    *auxp = *auxpf;
@@ -670,7 +671,8 @@ _rtld(Elf_Addr *sp, func_ptr_type *exit_proc, Obj_Entry **objp)
     }
 #endif
 
-    digest_dynamic(obj_main, 0);
+    if (!digest_dynamic(obj_main, 0))
+	rtld_die();
     dbg("%s valid_hash_sysv %d valid_hash_gnu %d dynsymcount %d",
 	obj_main->path, obj_main->valid_hash_sysv, obj_main->valid_hash_gnu,
 	obj_main->dynsymcount);
@@ -1407,13 +1409,13 @@ obj_resolve_origin(Obj_Entry *obj)
 	return (rtld_dirname_abs(obj->path, obj->origin_path) != -1);
 }
 
-static void
+static bool
 digest_dynamic2(Obj_Entry *obj, const Elf_Dyn *dyn_rpath,
     const Elf_Dyn *dyn_soname, const Elf_Dyn *dyn_runpath)
 {
 
 	if (obj->z_origin && !obj_resolve_origin(obj))
-		rtld_die();
+		return (false);
 
 	if (dyn_runpath != NULL) {
 		obj->runpath = (const char *)obj->strtab + dyn_runpath->d_un.d_val;
@@ -1424,9 +1426,10 @@ digest_dynamic2(Obj_Entry *obj, const Elf_Dyn *dyn_rpath,
 	}
 	if (dyn_soname != NULL)
 		object_add_name(obj, obj->strtab + dyn_soname->d_un.d_val);
+	return (true);
 }
 
-static void
+static bool
 digest_dynamic(Obj_Entry *obj, int early)
 {
 	const Elf_Dyn *dyn_rpath;
@@ -1434,7 +1437,7 @@ digest_dynamic(Obj_Entry *obj, int early)
 	const Elf_Dyn *dyn_runpath;
 
 	digest_dynamic1(obj, early, &dyn_rpath, &dyn_soname, &dyn_runpath);
-	digest_dynamic2(obj, dyn_rpath, dyn_soname, dyn_runpath);
+	return (digest_dynamic2(obj, dyn_rpath, dyn_soname, dyn_runpath));
 }
 
 /*
@@ -2562,16 +2565,15 @@ do_load_object(int fd, const char *name, char *path, struct stat *sbp,
     if (name != NULL)
 	object_add_name(obj, name);
     obj->path = path;
-    digest_dynamic(obj, 0);
+    if (!digest_dynamic(obj, 0))
+	goto errp;
     dbg("%s valid_hash_sysv %d valid_hash_gnu %d dynsymcount %d", obj->path,
 	obj->valid_hash_sysv, obj->valid_hash_gnu, obj->dynsymcount);
     if (obj->z_noopen && (flags & (RTLD_LO_DLOPEN | RTLD_LO_TRACE)) ==
       RTLD_LO_DLOPEN) {
 	dbg("refusing to load non-loadable \"%s\"", obj->path);
 	_rtld_error("Cannot dlopen non-loadable %s", obj->path);
-	munmap(obj->mapbase, obj->mapsize);
-	obj_free(obj);
-	return (NULL);
+	goto errp;
     }
 
     obj->dlopened = (flags & RTLD_LO_DLOPEN) != 0;
@@ -2588,7 +2590,12 @@ do_load_object(int fd, const char *name, char *path, struct stat *sbp,
     LD_UTRACE(UTRACE_LOAD_OBJECT, obj, obj->mapbase, obj->mapsize, 0,
 	obj->path);    
 
-    return obj;
+    return (obj);
+
+errp:
+    munmap(obj->mapbase, obj->mapsize);
+    obj_free(obj);
+    return (NULL);
 }
 
 static Obj_Entry *
@@ -3989,12 +3996,17 @@ rtld_dirname_abs(const char *path, char *base)
 {
 	char *last;
 
-	if (realpath(path, base) == NULL)
+	if (realpath(path, base) == NULL) {
+		_rtld_error("realpath \"%s\" failed (%s)", path,
+		    rtld_strerror(errno));
 		return (-1);
+	}
 	dbg("%s -> %s", path, base);
 	last = strrchr(base, '/');
-	if (last == NULL)
+	if (last == NULL) {
+		_rtld_error("non-abs result from realpath \"%s\"", path);
 		return (-1);
+	}
 	if (last != base)
 		*last = '\0';
 	return (0);
@@ -5512,9 +5524,12 @@ static int
 open_binary_fd(const char *argv0, bool search_in_path,
     const char **binpath_res)
 {
-	char *pathenv, *pe, *binpath;
+	char *binpath, *pathenv, *pe, *res1;
+	const char *res;
 	int fd;
 
+	binpath = NULL;
+	res = NULL;
 	if (search_in_path && strchr(argv0, '/') == NULL) {
 		binpath = xmalloc(PATH_MAX);
 		pathenv = getenv("PATH");
@@ -5530,33 +5545,40 @@ open_binary_fd(const char *argv0, bool search_in_path,
 		fd = -1;
 		errno = ENOENT;
 		while ((pe = strsep(&pathenv, ":")) != NULL) {
-			if (strlcpy(binpath, pe, sizeof(binpath)) >=
-			    sizeof(binpath))
+			if (strlcpy(binpath, pe, PATH_MAX) >= PATH_MAX)
 				continue;
 			if (binpath[0] != '\0' &&
-			    strlcat(binpath, "/", sizeof(binpath)) >=
-			    sizeof(binpath))
+			    strlcat(binpath, "/", PATH_MAX) >= PATH_MAX)
 				continue;
-			if (strlcat(binpath, argv0, sizeof(binpath)) >=
-			    sizeof(binpath))
+			if (strlcat(binpath, argv0, PATH_MAX) >= PATH_MAX)
 				continue;
 			fd = open(binpath, O_RDONLY | O_CLOEXEC | O_VERIFY);
 			if (fd != -1 || errno != ENOENT) {
-				*binpath_res = binpath;
+				res = binpath;
 				break;
 			}
 		}
 		free(pathenv);
 	} else {
 		fd = open(argv0, O_RDONLY | O_CLOEXEC | O_VERIFY);
-		*binpath_res = argv0;
+		res = argv0;
 	}
-	/* XXXKIB Use getcwd() to resolve relative binpath to absolute. */
 
 	if (fd == -1) {
 		_rtld_error("Cannot open %s: %s", argv0, rtld_strerror(errno));
 		rtld_die();
 	}
+	if (res != NULL && res[0] != '/') {
+		res1 = xmalloc(PATH_MAX);
+		if (realpath(res, res1) != NULL) {
+			if (res != argv0)
+				free(__DECONST(char *, res));
+			res = res1;
+		} else {
+			free(res1);
+		}
+	}
+	*binpath_res = res;
 	return (fd);
 }
 
@@ -5705,28 +5727,6 @@ rtld_strerror(int errnum)
 	if (errnum < 0 || errnum >= sys_nerr)
 		return ("Unknown error");
 	return (sys_errlist[errnum]);
-}
-
-/*
- * No ifunc relocations.
- */
-void *
-memset(void *dest, int c, size_t len)
-{
-	size_t i;
-
-	for (i = 0; i < len; i++)
-		((char *)dest)[i] = c;
-	return (dest);
-}
-
-void
-bzero(void *dest, size_t len)
-{
-	size_t i;
-
-	for (i = 0; i < len; i++)
-		((char *)dest)[i] = 0;
 }
 
 /* malloc */

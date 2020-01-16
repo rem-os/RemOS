@@ -502,10 +502,8 @@ vfs_mount_alloc(struct vnode *vp, struct vfsconf *vfsp, const char *fspath,
 	    __rangeof(struct mount, mnt_startzero, mnt_endzero));
 	TAILQ_INIT(&mp->mnt_nvnodelist);
 	mp->mnt_nvnodelistsize = 0;
-	TAILQ_INIT(&mp->mnt_activevnodelist);
-	mp->mnt_activevnodelistsize = 0;
-	TAILQ_INIT(&mp->mnt_tmpfreevnodelist);
-	mp->mnt_tmpfreevnodelistsize = 0;
+	TAILQ_INIT(&mp->mnt_lazyvnodelist);
+	mp->mnt_lazyvnodelistsize = 0;
 	if (mp->mnt_ref != 0 || mp->mnt_lockref != 0 ||
 	    mp->mnt_writeopcount != 0)
 		panic("%s: non-zero counters on new mp %p\n", __func__, mp);
@@ -571,10 +569,8 @@ vfs_mount_destroy(struct mount *mp)
 	KASSERT(TAILQ_EMPTY(&mp->mnt_uppers), ("mnt_uppers"));
 	if (mp->mnt_nvnodelistsize != 0)
 		panic("vfs_mount_destroy: nonzero nvnodelistsize");
-	if (mp->mnt_activevnodelistsize != 0)
-		panic("vfs_mount_destroy: nonzero activevnodelistsize");
-	if (mp->mnt_tmpfreevnodelistsize != 0)
-		panic("vfs_mount_destroy: nonzero tmpfreevnodelistsize");
+	if (mp->mnt_lazyvnodelistsize != 0)
+		panic("vfs_mount_destroy: nonzero lazyvnodelistsize");
 	if (mp->mnt_lockref != 0)
 		panic("vfs_mount_destroy: nonzero lock refcount");
 	MNT_IUNLOCK(mp);
@@ -1692,7 +1688,7 @@ dounmount(struct mount *mp, int flags, struct thread *td)
 	if (coveredvp != NULL)
 		vdrop(coveredvp);
 
-	vfs_msync(mp, MNT_WAIT);
+	vfs_periodic(mp, MNT_WAIT);
 	MNT_ILOCK(mp);
 	async_flag = mp->mnt_flag & MNT_ASYNC;
 	mp->mnt_flag &= ~MNT_ASYNC;
@@ -1700,9 +1696,7 @@ dounmount(struct mount *mp, int flags, struct thread *td)
 	MNT_IUNLOCK(mp);
 	cache_purgevfs(mp, false); /* remove cache entries for this file sys */
 	vfs_deallocate_syncvnode(mp);
-	if ((mp->mnt_flag & MNT_RDONLY) != 0 || (flags & MNT_FORCE) != 0 ||
-	    (error = VFS_SYNC(mp, MNT_WAIT)) == 0)
-		error = VFS_UNMOUNT(mp, flags);
+	error = VFS_UNMOUNT(mp, flags);
 	vn_finished_write(mp);
 	/*
 	 * If we failed to flush the dirty blocks for this mount point,
