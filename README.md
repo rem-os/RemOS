@@ -1,3 +1,6 @@
+RemOS is FreeBSD spork focused on using the packagebase system from trueos ontop of a nearly stock FreeBSD as a passion project by Nick 'Darkfiberiru' Wolff.
+
+
 FreeBSD Source:
 ---------------
 This is the top level of the FreeBSD source directory.  This file
