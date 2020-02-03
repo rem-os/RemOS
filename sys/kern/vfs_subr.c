@@ -699,7 +699,6 @@ vntblinit(void *dummy __unused)
 }
 SYSINIT(vfs, SI_SUB_VFS, SI_ORDER_FIRST, vntblinit, NULL);
 
-
 /*
  * Mark a mount point as busy. Used to synchronize access and to delay
  * unmounting. Eventually, mountlist_mtx is not released on failure.
@@ -3047,6 +3046,19 @@ vrefact(struct vnode *vp)
 #endif
 }
 
+void
+vrefactn(struct vnode *vp, u_int n)
+{
+
+	CTR2(KTR_VFS, "%s: vp %p", __func__, vp);
+#ifdef INVARIANTS
+	int old = atomic_fetchadd_int(&vp->v_usecount, n);
+	VNASSERT(old > 0, vp, ("%s: wrong use count %d", __func__, old));
+#else
+	atomic_add_int(&vp->v_usecount, n);
+#endif
+}
+
 /*
  * Return reference count of a vnode.
  *
@@ -3863,7 +3875,6 @@ vgonel(struct vnode *vp)
 		vinactivef(vp);
 		VI_UNLOCK(vp);
 	}
-	VNPASS(!vn_need_pageq_flush(vp), vp);
 	if (vp->v_type == VSOCK)
 		vfs_unp_reclaim(vp);
 
@@ -4995,7 +5006,7 @@ vn_need_pageq_flush(struct vnode *vp)
 	struct vm_object *obj;
 	int need;
 
-	VNPASS(VN_IS_DOOMED(vp) || mtx_owned(VI_MTX(vp)), vp);
+	MPASS(mtx_owned(VI_MTX(vp)));
 	need = 0;
 	if ((obj = vp->v_object) != NULL && (vp->v_vflag & VV_NOSYNC) == 0 &&
 	    vm_object_mightbedirty(obj))
@@ -5371,12 +5382,6 @@ vop_unlock_pre(void *ap)
 	struct vop_unlock_args *a = ap;
 
 	ASSERT_VOP_LOCKED(a->a_vp, "VOP_UNLOCK");
-}
-
-void
-vop_unlock_post(void *ap, int rc)
-{
-	return;
 }
 
 void
@@ -5945,23 +5950,6 @@ vfs_read_dirent(struct vop_readdir_args *ap, struct dirent *dp, off_t off)
 }
 
 /*
- * Mark for update the access time of the file if the filesystem
- * supports VOP_MARKATIME.  This functionality is used by execve and
- * mmap, so we want to avoid the I/O implied by directly setting
- * va_atime for the sake of efficiency.
- */
-void
-vfs_mark_atime(struct vnode *vp, struct ucred *cred)
-{
-	struct mount *mp;
-
-	mp = vp->v_mount;
-	ASSERT_VOP_LOCKED(vp, "vfs_mark_atime");
-	if (mp != NULL && (mp->mnt_flag & (MNT_NOATIME | MNT_RDONLY)) == 0)
-		(void)VOP_MARKATIME(vp);
-}
-
-/*
  * The purpose of this routine is to remove granularity from accmode_t,
  * reducing it into standard unix access bits - VEXEC, VREAD, VWRITE,
  * VADMIN and VAPPEND.
@@ -6129,7 +6117,6 @@ vfs_cache_root_set(struct mount *mp, struct vnode *vp)
  *
  * This interface replaces MNT_VNODE_FOREACH.
  */
-
 
 struct vnode *
 __mnt_vnode_next_all(struct vnode **mvp, struct mount *mp)
@@ -6389,4 +6376,16 @@ __mnt_vnode_markerfree_lazy(struct vnode **mvp, struct mount *mp)
 	TAILQ_REMOVE(&mp->mnt_lazyvnodelist, *mvp, v_lazylist);
 	mtx_unlock(&mp->mnt_listmtx);
 	mnt_vnode_markerfree_lazy(mvp, mp);
+}
+
+int
+vn_dir_check_exec(struct vnode *vp, struct componentname *cnp)
+{
+
+	if ((cnp->cn_flags & NOEXECCHECK) != 0) {
+		cnp->cn_flags &= ~NOEXECCHECK;
+		return (0);
+	}
+
+	return (VOP_ACCESS(vp, VEXEC, cnp->cn_cred, cnp->cn_thread));
 }
