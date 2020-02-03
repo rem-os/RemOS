@@ -37,9 +37,6 @@ CWARNEXTRA+=	-Wno-error-shift-negative-value
 .if ${COMPILER_VERSION} >= 40000
 CWARNEXTRA+=	-Wno-address-of-packed-member
 .endif
-.if ${COMPILER_VERSION} >= 100000
-NO_WINT_IN_BOOL_CONTEXT=	-Wno-int-in-bool-context
-.endif
 .endif
 
 .if ${COMPILER_TYPE} == "gcc"
@@ -154,18 +151,6 @@ INLINE_LIMIT?=	8000
 .if ${LINKER_FEATURES:Mriscv-relaxations} == ""
 CFLAGS+=	-mno-relax
 .endif
-.endif
-
-#
-# For sparc64 we want the medany code model so modules may be located
-# anywhere in the 64-bit address space.  We also tell GCC to use floating
-# point emulation.  This avoids using floating point registers for integer
-# operations which it has a tendency to do.
-#
-.if ${MACHINE_CPUARCH} == "sparc64"
-CFLAGS.clang+=	-mcmodel=large -fno-dwarf2-cfi-asm
-CFLAGS.gcc+=	-mcmodel=medany -msoft-float
-INLINE_LIMIT?=	15000
 .endif
 
 #
@@ -318,5 +303,4 @@ LD_EMULATION_powerpc= elf32ppc_fbsd
 LD_EMULATION_powerpcspe= elf32ppc_fbsd
 LD_EMULATION_powerpc64= elf64ppc_fbsd
 LD_EMULATION_riscv64= elf64lriscv
-LD_EMULATION_sparc64= elf64_sparc_fbsd
 LD_EMULATION=${LD_EMULATION_${MACHINE_ARCH}}

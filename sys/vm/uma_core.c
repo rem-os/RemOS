@@ -239,7 +239,9 @@ struct uma_bucket_zone {
 #define	BUCKET_MIN	BUCKET_SIZE(4)
 
 struct uma_bucket_zone bucket_zones[] = {
+#ifndef __ILP32__
 	{ NULL, "4 Bucket", BUCKET_SIZE(4), 4096 },
+#endif
 	{ NULL, "6 Bucket", BUCKET_SIZE(6), 3072 },
 	{ NULL, "8 Bucket", BUCKET_SIZE(8), 2048 },
 	{ NULL, "12 Bucket", BUCKET_SIZE(12), 1536 },
@@ -2101,7 +2103,9 @@ zone_kva_available(uma_zone_t zone, void *unused)
 	if ((zone->uz_flags & UMA_ZFLAG_CACHE) != 0)
 		return;
 	KEG_GET(zone, keg);
-	if (keg->uk_allocf == startup_alloc)
+	if (keg->uk_flags & UMA_ZONE_PCPU)
+		keg->uk_allocf = pcpu_page_alloc;
+	else if (keg->uk_allocf == startup_alloc)
 		keg->uk_allocf = page_alloc;
 }
 
