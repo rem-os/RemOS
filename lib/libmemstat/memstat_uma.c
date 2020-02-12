@@ -459,9 +459,9 @@ skip_percpu:
 				if (ret != 0)
 					continue;
 				for (ubp =
-				    TAILQ_FIRST(&uzd.uzd_buckets);
+				    STAILQ_FIRST(&uzd.uzd_buckets);
 				    ubp != NULL;
-				    ubp = TAILQ_NEXT(&ub, ub_link)) {
+				    ubp = STAILQ_NEXT(&ub, ub_link)) {
 					ret = kread(kvm, ubp, &ub,
 					   sizeof(ub), 0);
 					if (ret != 0)
@@ -476,7 +476,7 @@ skip_percpu:
 					ret = kread(kvm, &kzp->uk_domain[i],
 					    &ukd, sizeof(ukd), 0);
 					if (ret != 0)
-						kegfree += ukd.ud_free;
+						kegfree += ukd.ud_free_items;
 				}
 				mtp->mt_kegfree = kegfree;
 				mtp->mt_free += mtp->mt_kegfree;

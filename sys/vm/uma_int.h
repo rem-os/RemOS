@@ -166,14 +166,12 @@
 #define	UMA_ZFLAG_BUCKET	0x10000000	/* Bucket zone. */
 #define	UMA_ZFLAG_INTERNAL	0x20000000	/* No offpage no PCPU. */
 #define	UMA_ZFLAG_TRASH		0x40000000	/* Add trash ctor/dtor. */
-#define	UMA_ZFLAG_CACHEONLY	0x80000000	/* Don't ask VM for buckets. */
 
 #define	UMA_ZFLAG_INHERIT						\
     (UMA_ZFLAG_OFFPAGE | UMA_ZFLAG_HASH | UMA_ZFLAG_VTOSLAB |		\
-     UMA_ZFLAG_BUCKET | UMA_ZFLAG_INTERNAL | UMA_ZFLAG_CACHEONLY)
+     UMA_ZFLAG_BUCKET | UMA_ZFLAG_INTERNAL)
 
 #define	PRINT_UMA_ZFLAGS	"\20"	\
-    "\40CACHEONLY"			\
     "\37TRASH"				\
     "\36INTERNAL"			\
     "\35BUCKET"				\
@@ -200,6 +198,7 @@
     "\6NOFREE"				\
     "\5MALLOC"				\
     "\4NOTOUCH"				\
+    "\3CONTIG"				\
     "\2ZINIT"
 
 /*
@@ -245,7 +244,7 @@ struct uma_hash {
  * for use.
  */
 struct uma_bucket {
-	TAILQ_ENTRY(uma_bucket)	ub_link;	/* Link into the zone */
+	STAILQ_ENTRY(uma_bucket)	ub_link; /* Link into the zone */
 	int16_t		ub_cnt;			/* Count of items in bucket. */
 	int16_t		ub_entries;		/* Max items. */
 	smr_seq_t	ub_seq;			/* SMR sequence number. */
@@ -325,7 +324,8 @@ struct uma_domain {
 	struct slabhead	ud_free_slab;	/* completely unallocated slabs */
 	struct slabhead ud_full_slab;	/* fully allocated slabs */
 	uint32_t	ud_pages;	/* Total page count */
-	uint32_t	ud_free;	/* Count of items free in slabs */
+	uint32_t	ud_free_items;	/* Count of items free in all slabs */
+	uint32_t	ud_free_slabs;	/* Count of free slabs */
 } __aligned(CACHE_LINE_SIZE);
 
 typedef struct uma_domain * uma_domain_t;
@@ -462,7 +462,7 @@ slab_item_index(uma_slab_t slab, uma_keg_t keg, void *item)
 }
 #endif /* _KERNEL */
 
-TAILQ_HEAD(uma_bucketlist, uma_bucket);
+STAILQ_HEAD(uma_bucketlist, uma_bucket);
 
 struct uma_zone_domain {
 	struct uma_bucketlist uzd_buckets; /* full buckets */
