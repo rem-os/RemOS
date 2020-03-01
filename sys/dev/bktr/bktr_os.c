@@ -110,7 +110,8 @@ int bt848_amsound = 0;		/* hard-wire AM sound at 6.5 Hz (france),
 int bt848_dolby = 0;
 #endif
 
-static SYSCTL_NODE(_hw, OID_AUTO, bt848, CTLFLAG_RW, 0, "Bt848 Driver mgmt");
+static SYSCTL_NODE(_hw, OID_AUTO, bt848, CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
+    "Bt848 Driver mgmt");
 SYSCTL_INT(_hw_bt848, OID_AUTO, card, CTLFLAG_RW, &bt848_card, -1, "");
 SYSCTL_INT(_hw_bt848, OID_AUTO, tuner, CTLFLAG_RW, &bt848_tuner, -1, "");
 SYSCTL_INT(_hw_bt848, OID_AUTO, reverse_mute, CTLFLAG_RW, &bt848_reverse_mute, -1, "");
@@ -463,6 +464,7 @@ bktr_attach( device_t dev )
 	}
 #endif
 
+	gone_in_dev(dev, 13, "bktr driver removed in FreeBSD 13.0\n");
 	return 0;
 
 fail:
