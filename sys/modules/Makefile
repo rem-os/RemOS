@@ -67,7 +67,6 @@ SUBDIR=	\
 	bhnd \
 	${_bxe} \
 	${_bios} \
-	${_bktr} \
 	${_blake2} \
 	bnxt \
 	bridgestp \
@@ -583,7 +582,6 @@ _agp=		agp
 _an=		an
 _aout=		aout
 _bios=		bios
-_bktr=		bktr
 .if ${MK_SOURCELESS_UCODE} != "no"
 _bxe=		bxe
 .endif
@@ -750,6 +748,7 @@ _cpsw=		cpsw
 .endif
 
 .if ${MACHINE_CPUARCH} == "powerpc"
+_aacraid=	aacraid
 _agp=		agp
 _an=		an
 _cardbus=	cardbus
@@ -767,6 +766,7 @@ _virtio=	virtio
 
 .if ${MACHINE_ARCH} == "powerpc64"
 _ipmi=		ipmi
+_ixl=		ixl
 _nvram=		opal_nvram
 .endif
 .if ${MACHINE_ARCH} == "powerpc64" || ${MACHINE_ARCH} == "powerpc"
