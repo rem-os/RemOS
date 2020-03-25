@@ -79,6 +79,8 @@ __DEFAULT_YES_OPTIONS = \
     CCD \
     CDDL \
     CLANG \
+    CLANG_BOOTSTRAP \
+    CLANG_IS_CC \
     CPP \
     CROSS_COMPILER \
     CRYPT \
@@ -125,6 +127,7 @@ __DEFAULT_YES_OPTIONS = \
     LDNS \
     LDNS_UTILS \
     LEGACY_CONSOLE \
+    LIBCPLUSPLUS \
     LIBPTHREAD \
     LIBTHR \
     LLD \
@@ -255,11 +258,6 @@ __T=${TARGET_ARCH}
 .else
 __T=${MACHINE_ARCH}
 .endif
-.if defined(TARGET)
-__TT=${TARGET}
-.else
-__TT=${MACHINE}
-.endif
 
 # All supported backends for LLVM_TARGET_XXX
 __LLVM_TARGETS= \
@@ -269,33 +267,24 @@ __LLVM_TARGETS= \
 		powerpc \
 		riscv \
 		x86
-__LLVM_TARGET_FILT=	C/(amd64|i386)/x86/:S/arm64/aarch64/:S/powerpc64/powerpc/
+__LLVM_TARGET_FILT=	C/(amd64|i386)/x86/:C/powerpc.*/powerpc/:C/armv[67]/arm/:C/riscv.*/riscv/:C/mips.*/mips/
 .for __llt in ${__LLVM_TARGETS}
 # Default enable the given TARGET's LLVM_TARGET support
-.if ${__TT:${__LLVM_TARGET_FILT}} == ${__llt}
+.if ${__T:${__LLVM_TARGET_FILT}} == ${__llt}
 __DEFAULT_YES_OPTIONS+=	LLVM_TARGET_${__llt:${__LLVM_TARGET_FILT}:tu}
 # aarch64 needs arm for -m32 support.
-.elif ${__TT} == "arm64" && ${__llt} == "arm"
+.elif ${__T} == "aarch64" && ${__llt:Marm*} != ""
 __DEFAULT_DEPENDENT_OPTIONS+=	LLVM_TARGET_ARM/LLVM_TARGET_AARCH64
 # Default the rest of the LLVM_TARGETs to the value of MK_LLVM_TARGET_ALL.
 .else
 __DEFAULT_DEPENDENT_OPTIONS+=	LLVM_TARGET_${__llt:${__LLVM_TARGET_FILT}:tu}/LLVM_TARGET_ALL
 .endif
 .endfor
-# until we can unwind clang + sparc
-MK_LLVM_TARGET_SPARC:=no
 
 __DEFAULT_NO_OPTIONS+=LLVM_TARGET_BPF
 
 .include <bsd.compiler.mk>
 
-.if ${__TT} != "mips"
-# Clang is installed as the default /usr/bin/cc.
-__DEFAULT_YES_OPTIONS+=CLANG_BOOTSTRAP CLANG_IS_CC
-.else
-# Clang is enabled but we still require an external toolchain.
-__DEFAULT_NO_OPTIONS+=CLANG_BOOTSTRAP CLANG_IS_CC
-.endif
 # In-tree binutils/gcc are older versions without modern architecture support.
 .if ${__T} == "aarch64" || ${__T:Mriscv*} != ""
 BROKEN_OPTIONS+=BINUTILS BINUTILS_BOOTSTRAP GDB
@@ -308,7 +297,7 @@ __DEFAULT_NO_OPTIONS+=BINUTILS_BOOTSTRAP
 .if ${__T:Mriscv*} != ""
 BROKEN_OPTIONS+=OFED
 .endif
-.if ${__TT} != "mips" && ${__T} != "powerpc" && ${__T} != "powerpcspe"
+.if ${__T} != "powerpc" && ${__T} != "powerpcspe"
 __DEFAULT_YES_OPTIONS+=LLD_BOOTSTRAP LLD_IS_LD
 .else
 __DEFAULT_NO_OPTIONS+=LLD_BOOTSTRAP LLD_IS_LD
@@ -377,8 +366,7 @@ BROKEN_OPTIONS+=HYPERV
 BROKEN_OPTIONS+=NVME
 .endif
 
-.if ${COMPILER_FEATURES:Mc++11} && \
-    (${__T} == "amd64" || ${__T} == "i386" || ${__T} == "powerpc64")
+.if ${__T} == "amd64" || ${__T} == "i386" || ${__T} == "powerpc64"
 __DEFAULT_YES_OPTIONS+=OPENMP
 .else
 __DEFAULT_NO_OPTIONS+=OPENMP
@@ -387,35 +375,9 @@ __DEFAULT_NO_OPTIONS+=OPENMP
 .include <bsd.mkopt.mk>
 
 #
-# MK_* options that default to "yes" if the compiler is a C++11 compiler.
-#
-.for var in \
-    LIBCPLUSPLUS
-.if !defined(MK_${var})
-.if ${COMPILER_FEATURES:Mc++11}
-.if defined(WITHOUT_${var})
-MK_${var}:=	no
-.else
-MK_${var}:=	yes
-.endif
-.else
-.if defined(WITH_${var})
-MK_${var}:=	yes
-.else
-MK_${var}:=	no
-.endif
-.endif
-.endif
-.endfor
-
-#
 # Force some options off if their dependencies are off.
 # Order is somewhat important.
 #
-.if !${COMPILER_FEATURES:Mc++11}
-MK_GOOGLETEST:=	no
-.endif
-
 .if ${MK_CAPSICUM} == "no"
 MK_CASPER:=	no
 .endif
@@ -554,9 +516,5 @@ MK_${vv:H}:=	${MK_${vv:T}}
 #
 # Set defaults for the MK_*_SUPPORT variables.
 #
-
-.if !${COMPILER_FEATURES:Mc++11}
-MK_LLDB:=	no
-.endif
 
 .endif #  !target(__<src.opts.mk>__)
