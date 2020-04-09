@@ -1335,13 +1335,6 @@ dev/bhnd/siba/siba_bhndb.c		optional siba bhnd bhndb
 dev/bhnd/siba/siba_erom.c		optional siba bhnd
 dev/bhnd/siba/siba_subr.c		optional siba bhnd
 #
-dev/bktr/bktr_audio.c		optional bktr pci
-dev/bktr/bktr_card.c		optional bktr pci
-dev/bktr/bktr_core.c		optional bktr pci
-dev/bktr/bktr_i2c.c		optional bktr pci smbus
-dev/bktr/bktr_os.c		optional bktr pci
-dev/bktr/bktr_tuner.c		optional bktr pci
-dev/bktr/msp34xx.c		optional bktr pci
 dev/bnxt/bnxt_hwrm.c		optional bnxt iflib pci
 dev/bnxt/bnxt_sysctl.c		optional bnxt iflib pci
 dev/bnxt/bnxt_txrx.c		optional bnxt iflib pci
@@ -1358,6 +1351,7 @@ dev/bwn/if_bwn_phy_g.c		optional bwn bhnd
 dev/bwn/if_bwn_phy_lp.c		optional bwn bhnd
 dev/bwn/if_bwn_phy_n.c		optional bwn bhnd
 dev/bwn/if_bwn_util.c		optional bwn bhnd
+dev/cadence/if_cgem.c		optional cgem fdt
 dev/cardbus/cardbus.c		optional cardbus
 dev/cardbus/cardbus_cis.c	optional cardbus
 dev/cardbus/cardbus_device.c	optional cardbus
@@ -1473,7 +1467,7 @@ t4fw.fwo		optional cxgbe					\
 	no-implicit-rule						\
 	clean		"t4fw.fwo"
 t4fw.fw			optional cxgbe					\
-	dependency	"$S/dev/cxgbe/firmware/t4fw-1.24.11.0.bin"	\
+	dependency	"$S/dev/cxgbe/firmware/t4fw-1.24.12.0.bin"	\
 	compile-with	"${CP} ${.ALLSRC} ${.TARGET}"			\
 	no-obj no-implicit-rule						\
 	clean		"t4fw.fw"
@@ -1507,7 +1501,7 @@ t5fw.fwo		optional cxgbe					\
 	no-implicit-rule						\
 	clean		"t5fw.fwo"
 t5fw.fw			optional cxgbe					\
-	dependency	"$S/dev/cxgbe/firmware/t5fw-1.24.11.0.bin"	\
+	dependency	"$S/dev/cxgbe/firmware/t5fw-1.24.12.0.bin"	\
 	compile-with	"${CP} ${.ALLSRC} ${.TARGET}"			\
 	no-obj no-implicit-rule						\
 	clean		"t5fw.fw"
@@ -1541,7 +1535,7 @@ t6fw.fwo		optional cxgbe					\
 	no-implicit-rule						\
 	clean		"t6fw.fwo"
 t6fw.fw			optional cxgbe					\
-	dependency	"$S/dev/cxgbe/firmware/t6fw-1.24.11.0.bin"	\
+	dependency	"$S/dev/cxgbe/firmware/t6fw-1.24.12.0.bin"	\
 	compile-with	"${CP} ${.ALLSRC} ${.TARGET}"			\
 	no-obj no-implicit-rule						\
 	clean		"t6fw.fw"
@@ -1780,6 +1774,7 @@ dev/ichsmb/ichsmb_pci.c		optional ichsmb pci
 dev/ida/ida.c			optional ida
 dev/ida/ida_disk.c		optional ida
 dev/ida/ida_pci.c		optional ida pci
+dev/iicbus/acpi_iicbus.c	optional acpi iicbus
 dev/iicbus/ad7418.c		optional ad7418
 dev/iicbus/ads111x.c		optional ads111x
 dev/iicbus/ds1307.c		optional ds1307
@@ -3486,6 +3481,7 @@ fs/fuse/fuse_main.c		optional fusefs
 fs/fuse/fuse_node.c		optional fusefs
 fs/fuse/fuse_vfsops.c		optional fusefs
 fs/fuse/fuse_vnops.c		optional fusefs
+fs/mntfs/mntfs_vnops.c		standard
 fs/msdosfs/msdosfs_conv.c	optional msdosfs
 fs/msdosfs/msdosfs_denode.c	optional msdosfs
 fs/msdosfs/msdosfs_fat.c	optional msdosfs
@@ -3493,10 +3489,10 @@ fs/msdosfs/msdosfs_iconv.c	optional msdosfs_iconv
 fs/msdosfs/msdosfs_lookup.c	optional msdosfs
 fs/msdosfs/msdosfs_vfsops.c	optional msdosfs
 fs/msdosfs/msdosfs_vnops.c	optional msdosfs
-fs/nfs/nfs_commonkrpc.c		optional nfscl | nfsd
-fs/nfs/nfs_commonsubs.c		optional nfscl | nfsd
-fs/nfs/nfs_commonport.c		optional nfscl | nfsd
-fs/nfs/nfs_commonacl.c		optional nfscl | nfsd
+fs/nfs/nfs_commonkrpc.c		optional nfscl | nfslockd | nfsd
+fs/nfs/nfs_commonsubs.c		optional nfscl | nfslockd | nfsd
+fs/nfs/nfs_commonport.c		optional nfscl | nfslockd | nfsd
+fs/nfs/nfs_commonacl.c		optional nfscl | nfslockd | nfsd
 fs/nfsclient/nfs_clcomsubs.c	optional nfscl
 fs/nfsclient/nfs_clsubs.c	optional nfscl
 fs/nfsclient/nfs_clstate.c	optional nfscl
@@ -3522,7 +3518,6 @@ fs/nullfs/null_vnops.c		optional nullfs
 fs/procfs/procfs.c		optional procfs
 fs/procfs/procfs_dbregs.c	optional procfs
 fs/procfs/procfs_fpregs.c	optional procfs
-fs/procfs/procfs_ioctl.c	optional procfs
 fs/procfs/procfs_map.c		optional procfs
 fs/procfs/procfs_mem.c		optional procfs
 fs/procfs/procfs_note.c		optional procfs
@@ -4439,8 +4434,7 @@ nfs/bootp_subr.c		optional bootp nfscl
 nfs/krpc_subr.c			optional bootp nfscl
 nfs/nfs_diskless.c		optional nfscl nfs_root
 nfs/nfs_fha.c			optional nfsd
-nfs/nfs_lock.c			optional nfscl | nfslockd | nfsd
-nfs/nfs_nfssvc.c		optional nfscl | nfsd
+nfs/nfs_nfssvc.c		optional nfscl | nfslockd | nfsd
 nlm/nlm_advlock.c		optional nfslockd | nfsd
 nlm/nlm_prot_clnt.c		optional nfslockd | nfsd
 nlm/nlm_prot_impl.c		optional nfslockd | nfsd
@@ -4475,6 +4469,8 @@ compat/linuxkpi/common/src/linux_radix.c	optional compat_linuxkpi \
 compat/linuxkpi/common/src/linux_rcu.c		optional compat_linuxkpi \
 	compile-with "${LINUXKPI_C} -I$S/contrib/ck/include"
 compat/linuxkpi/common/src/linux_schedule.c	optional compat_linuxkpi \
+	compile-with "${LINUXKPI_C}"
+compat/linuxkpi/common/src/linux_shmemfs.c	optional compat_linuxkpi \
 	compile-with "${LINUXKPI_C}"
 compat/linuxkpi/common/src/linux_slab.c		optional compat_linuxkpi \
 	compile-with "${LINUXKPI_C}"
@@ -4728,6 +4724,8 @@ dev/mlx5/mlx5_core/mlx5_diagnostics.c		optional mlx5 pci	\
 	compile-with "${OFED_C}"
 dev/mlx5/mlx5_core/mlx5_eq.c			optional mlx5 pci	\
 	compile-with "${OFED_C}"
+dev/mlx5/mlx5_core/mlx5_eswitch.c		optional mlx5 pci	\
+	compile-with "${OFED_C}"
 dev/mlx5/mlx5_core/mlx5_fs_cmd.c		optional mlx5 pci	\
 	compile-with "${OFED_C}"
 dev/mlx5/mlx5_core/mlx5_fs_tree.c		optional mlx5 pci	\
@@ -4824,6 +4822,23 @@ crypto/libsodium/randombytes.c	optional crypto \
 	compile-with "${NORMAL_C} -I$S/contrib/libsodium/src/libsodium/include -I$S/crypto/libsodium"
 crypto/libsodium/utils.c	optional crypto \
 	compile-with "${NORMAL_C} -I$S/contrib/libsodium/src/libsodium/include -I$S/crypto/libsodium"
+contrib/libsodium/src/libsodium/crypto_core/hchacha20/core_hchacha20.c \
+	optional crypto \
+	compile-with "${NORMAL_C} -I$S/contrib/libsodium/src/libsodium/include/sodium -I$S/crypto/libsodium"
+contrib/libsodium/src/libsodium/crypto_stream/chacha20/stream_chacha20.c \
+	optional crypto \
+	compile-with "${NORMAL_C} -I$S/contrib/libsodium/src/libsodium/include/sodium -I$S/crypto/libsodium"
+contrib/libsodium/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c \
+	optional crypto \
+	compile-with "${NORMAL_C} -I$S/contrib/libsodium/src/libsodium/include/sodium -I$S/crypto/libsodium"
+contrib/libsodium/src/libsodium/crypto_aead/chacha20poly1305/sodium/aead_chacha20poly1305.c \
+	optional crypto \
+	compile-with "${NORMAL_C} -I$S/contrib/libsodium/src/libsodium/include/sodium -I$S/crypto/libsodium"
+contrib/libsodium/src/libsodium/crypto_aead/xchacha20poly1305/sodium/aead_xchacha20poly1305.c \
+	optional crypto \
+	compile-with "${NORMAL_C} -I$S/contrib/libsodium/src/libsodium/include/sodium -I$S/crypto/libsodium"
+
+
 opencrypto/cbc_mac.c		optional crypto
 opencrypto/xform_cbc_mac.c	optional crypto
 rpc/auth_none.c			optional krpc | nfslockd | nfscl | nfsd

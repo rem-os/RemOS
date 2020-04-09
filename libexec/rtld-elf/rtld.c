@@ -286,6 +286,7 @@ Elf_Addr tls_dtv_generation = 1;	/* Used to detect when dtv size changes */
 int tls_max_index = 1;		/* Largest module index allocated */
 
 static bool ld_library_path_rpath = false;
+bool ld_fast_sigblock = false;
 
 /*
  * Globals for path names, and such
@@ -443,6 +444,10 @@ _rtld(Elf_Addr *sp, func_ptr_type *exit_proc, Obj_Entry **objp)
     environ = env;
     main_argc = argc;
     main_argv = argv;
+
+    if (aux_info[AT_BSDFLAGS] != NULL &&
+	(aux_info[AT_BSDFLAGS]->a_un.a_val & ELF_BSDF_SIGFASTBLK) != 0)
+	    ld_fast_sigblock = true;
 
     trust = !issetugid();
 
@@ -1496,6 +1501,7 @@ digest_phdr(const Elf_Phdr *phdr, int phnum, caddr_t entry, const char *path)
 	    obj->tlsalign = ph->p_align;
 	    obj->tlsinitsize = ph->p_filesz;
 	    obj->tlsinit = (void*)(ph->p_vaddr + obj->relocbase);
+	    obj->tlspoffset = ph->p_offset;
 	    break;
 
 	case PT_GNU_STACK:
@@ -3029,10 +3035,13 @@ resolve_object_ifunc(Obj_Entry *obj, bool bind_now, int flags,
 	if (obj->ifuncs_resolved)
 		return (0);
 	obj->ifuncs_resolved = true;
-	if (!obj->irelative && !((obj->bind_now || bind_now) && obj->gnu_ifunc))
+	if (!obj->irelative && !obj->irelative_nonplt &&
+	    !((obj->bind_now || bind_now) && obj->gnu_ifunc))
 		return (0);
 	if (obj_disable_relro(obj) == -1 ||
 	    (obj->irelative && reloc_iresolve(obj, lockstate) == -1) ||
+	    (obj->irelative_nonplt && reloc_iresolve_nonplt(obj,
+	    lockstate) == -1) ||
 	    ((obj->bind_now || bind_now) && obj->gnu_ifunc &&
 	    reloc_gnu_ifunc(obj, flags, lockstate) == -1) ||
 	    obj_enforce_relro(obj) == -1)
@@ -4860,7 +4869,7 @@ allocate_tls(Obj_Entry *objs, void *oldtcb, size_t tcbsize, size_t tcbalign)
     Elf_Addr addr;
     Elf_Addr i;
     size_t extra_size, maxalign, post_size, pre_size, tls_block_size;
-    size_t tls_init_align;
+    size_t tls_init_align, tls_init_offset;
 
     if (oldtcb != NULL && tcbsize == TLS_TCB_SIZE)
 	return (oldtcb);
@@ -4877,7 +4886,7 @@ allocate_tls(Obj_Entry *objs, void *oldtcb, size_t tcbsize, size_t tcbalign)
     tls_block_size += pre_size + tls_static_space - TLS_TCB_SIZE - post_size;
 
     /* Allocate whole TLS block */
-    tls_block = malloc_aligned(tls_block_size, maxalign);
+    tls_block = malloc_aligned(tls_block_size, maxalign, 0);
     tcb = (Elf_Addr **)(tls_block + pre_size + extra_size);
 
     if (oldtcb != NULL) {
@@ -4901,15 +4910,21 @@ allocate_tls(Obj_Entry *objs, void *oldtcb, size_t tcbsize, size_t tcbalign)
 
 	for (obj = globallist_curr(objs); obj != NULL;
 	  obj = globallist_next(obj)) {
-	    if (obj->tlsoffset > 0) {
-		addr = (Elf_Addr)tcb + obj->tlsoffset;
-		if (obj->tlsinitsize > 0)
-		    memcpy((void*) addr, obj->tlsinit, obj->tlsinitsize);
-		if (obj->tlssize > obj->tlsinitsize)
-		    memset((void*)(addr + obj->tlsinitsize), 0,
-			   obj->tlssize - obj->tlsinitsize);
-		dtv[obj->tlsindex + 1] = addr;
+	    if (obj->tlsoffset == 0)
+		continue;
+	    tls_init_offset = obj->tlspoffset & (obj->tlsalign - 1);
+	    addr = (Elf_Addr)tcb + obj->tlsoffset;
+	    if (tls_init_offset > 0)
+		memset((void *)addr, 0, tls_init_offset);
+	    if (obj->tlsinitsize > 0) {
+		memcpy((void *)(addr + tls_init_offset), obj->tlsinit,
+		    obj->tlsinitsize);
 	    }
+	    if (obj->tlssize > obj->tlsinitsize) {
+		memset((void *)(addr + tls_init_offset + obj->tlsinitsize),
+		    0, obj->tlssize - obj->tlsinitsize - tls_init_offset);
+	    }
+	    dtv[obj->tlsindex + 1] = addr;
 	}
     }
 
@@ -4946,7 +4961,7 @@ free_tls(void *tcb, size_t tcbsize, size_t tcbalign __unused)
 
 #endif
 
-#if defined(__i386__) || defined(__amd64__) || defined(__sparc64__)
+#if defined(__i386__) || defined(__amd64__)
 
 /*
  * Allocate Static TLS using the Variant II method.
@@ -4967,7 +4982,7 @@ allocate_tls(Obj_Entry *objs, void *oldtls, size_t tcbsize, size_t tcbalign)
     size = round(tls_static_space, ralign) + round(tcbsize, ralign);
 
     assert(tcbsize >= 2*sizeof(Elf_Addr));
-    tls = malloc_aligned(size, ralign);
+    tls = malloc_aligned(size, ralign, 0 /* XXX */);
     dtv = xcalloc(tls_max_index + 2, sizeof(Elf_Addr));
 
     segbase = (Elf_Addr)(tls + round(tls_static_space, ralign));
@@ -5060,25 +5075,24 @@ free_tls(void *tls, size_t tcbsize  __unused, size_t tcbalign)
 void *
 allocate_module_tls(int index)
 {
-    Obj_Entry* obj;
-    char* p;
+	Obj_Entry *obj;
+	char *p;
 
-    TAILQ_FOREACH(obj, &obj_list, next) {
-	if (obj->marker)
-	    continue;
-	if (obj->tlsindex == index)
-	    break;
-    }
-    if (!obj) {
-	_rtld_error("Can't find module with TLS index %d", index);
-	rtld_die();
-    }
+	TAILQ_FOREACH(obj, &obj_list, next) {
+		if (obj->marker)
+			continue;
+		if (obj->tlsindex == index)
+			break;
+	}
+	if (obj == NULL) {
+		_rtld_error("Can't find module with TLS index %d", index);
+		rtld_die();
+	}
 
-    p = malloc_aligned(obj->tlssize, obj->tlsalign);
-    memcpy(p, obj->tlsinit, obj->tlsinitsize);
-    memset(p + obj->tlsinitsize, 0, obj->tlssize - obj->tlsinitsize);
-
-    return p;
+	p = malloc_aligned(obj->tlssize, obj->tlsalign, obj->tlspoffset);
+	memcpy(p, obj->tlsinit, obj->tlsinitsize);
+	memset(p + obj->tlsinitsize, 0, obj->tlssize - obj->tlsinitsize);
+	return (p);
 }
 
 bool
@@ -5622,26 +5636,30 @@ parse_args(char* argv[], int argc, bool *use_pathp, int *fdp)
 				print_usage(argv[0]);
 				_exit(0);
 			} else if (opt == 'f') {
-			/*
-			 * -f XX can be used to specify a descriptor for the
-			 * binary named at the command line (i.e., the later
-			 * argument will specify the process name but the
-			 * descriptor is what will actually be executed)
-			 */
-			if (j != arglen - 1) {
-				/* -f must be the last option in, e.g., -abcf */
-				_rtld_error("Invalid options: %s", arg);
-				rtld_die();
-			}
-			i++;
-			fd = parse_integer(argv[i]);
-			if (fd == -1) {
-				_rtld_error("Invalid file descriptor: '%s'",
-				    argv[i]);
-				rtld_die();
-			}
-			*fdp = fd;
-			break;
+				/*
+				 * -f XX can be used to specify a
+				 * descriptor for the binary named at
+				 * the command line (i.e., the later
+				 * argument will specify the process
+				 * name but the descriptor is what
+				 * will actually be executed).
+				 *
+				 * -f must be the last option in, e.g., -abcf.
+				 */
+				if (j != arglen - 1) {
+					_rtld_error("Invalid options: %s", arg);
+					rtld_die();
+				}
+				i++;
+				fd = parse_integer(argv[i]);
+				if (fd == -1) {
+					_rtld_error(
+					    "Invalid file descriptor: '%s'",
+					    argv[i]);
+					rtld_die();
+				}
+				*fdp = fd;
+				break;
 			} else if (opt == 'p') {
 				*use_pathp = true;
 			} else {

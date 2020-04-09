@@ -58,7 +58,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/bus.h>
 #include <sys/systm.h>
 #include <sys/proc.h>
-#include <sys/pioctl.h>
 #include <sys/ptrace.h>
 #include <sys/kdb.h>
 #include <sys/kernel.h>
@@ -976,7 +975,7 @@ trap_user_dtrace(struct trapframe *frame, int (**hookp)(struct trapframe *))
 {
 	int (*hook)(struct trapframe *);
 
-	hook = (int (*)(struct trapframe *))atomic_load_ptr(hookp);
+	hook = atomic_load_ptr(hookp);
 	enable_intr();
 	if (hook != NULL)
 		return ((hook)(frame) == 0);

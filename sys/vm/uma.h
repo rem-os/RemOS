@@ -213,8 +213,8 @@ uma_zone_t uma_zcreate(const char *name, size_t size, uma_ctor ctor,
  *	A pointer to a structure which is intended to be opaque to users of
  *	the interface.  The value may be null if the wait flag is not set.
  */
-uma_zone_t uma_zsecond_create(char *name, uma_ctor ctor, uma_dtor dtor,
-		    uma_init zinit, uma_fini zfini, uma_zone_t master);
+uma_zone_t uma_zsecond_create(const char *name, uma_ctor ctor, uma_dtor dtor,
+    uma_init zinit, uma_fini zfini, uma_zone_t master);
 
 /*
  * Create cache-only zones.
@@ -225,9 +225,9 @@ uma_zone_t uma_zsecond_create(char *name, uma_ctor ctor, uma_dtor dtor,
  * zones.  The 'arg' parameter is passed to import/release and is caller
  * specific.
  */
-uma_zone_t uma_zcache_create(char *name, int size, uma_ctor ctor, uma_dtor dtor,
-		    uma_init zinit, uma_fini zfini, uma_import zimport,
-		    uma_release zrelease, void *arg, int flags);
+uma_zone_t uma_zcache_create(const char *name, int size, uma_ctor ctor,
+    uma_dtor dtor, uma_init zinit, uma_fini zfini, uma_import zimport,
+    uma_release zrelease, void *arg, int flags);
 
 /*
  * Definitions for uma_zcreate flags
@@ -236,6 +236,10 @@ uma_zone_t uma_zcache_create(char *name, int size, uma_ctor ctor, uma_dtor dtor,
  * overlap when adding new features.
  */
 #define UMA_ZONE_ZINIT		0x0002	/* Initialize with zeros */
+#define UMA_ZONE_CONTIG		0x0004	/*
+					 * Physical memory underlying an object
+					 * must be contiguous.
+					 */
 #define UMA_ZONE_NOTOUCH	0x0008	/* UMA may not access the memory */
 #define UMA_ZONE_MALLOC		0x0010	/* For use by malloc(9) only! */
 #define UMA_ZONE_NOFREE		0x0020	/* Do not free slabs of this type! */
@@ -284,8 +288,8 @@ uma_zone_t uma_zcache_create(char *name, int size, uma_ctor ctor, uma_dtor dtor,
  */
 #define	UMA_ZONE_INHERIT						\
     (UMA_ZONE_NOTOUCH | UMA_ZONE_MALLOC | UMA_ZONE_NOFREE |		\
-     UMA_ZONE_NOTPAGE | UMA_ZONE_PCPU | UMA_ZONE_FIRSTTOUCH |		\
-     UMA_ZONE_ROUNDROBIN)
+     UMA_ZONE_VM | UMA_ZONE_NOTPAGE | UMA_ZONE_PCPU |			\
+     UMA_ZONE_FIRSTTOUCH | UMA_ZONE_ROUNDROBIN)
 
 /* Definitions for align */
 #define UMA_ALIGN_PTR	(sizeof(void *) - 1)	/* Alignment fit for ptr */
@@ -639,8 +643,7 @@ smr_t uma_zone_get_smr(uma_zone_t zone);
 #define UMA_SLAB_BOOT	0x01		/* Slab alloced from boot pages */
 #define UMA_SLAB_KERNEL	0x04		/* Slab alloced from kmem */
 #define UMA_SLAB_PRIV	0x08		/* Slab alloced from priv allocator */
-#define UMA_SLAB_OFFP	0x10		/* Slab is managed separately  */
-/* 0x02, 0x40, and 0x80 are available */
+/* 0x02, 0x10, 0x40, and 0x80 are available */
 
 /*
  * Used to pre-fill a zone with some number of items
@@ -666,6 +669,11 @@ void uma_prealloc(uma_zone_t zone, int itemcnt);
  *	Non-zero if zone is exhausted.
  */
 int uma_zone_exhausted(uma_zone_t zone);
+
+/*
+ * Returns the bytes of memory consumed by the zone.
+ */
+size_t uma_zone_memory(uma_zone_t zone);
 
 /*
  * Common UMA_ZONE_PCPU zones.

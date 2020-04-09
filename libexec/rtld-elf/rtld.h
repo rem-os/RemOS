@@ -163,6 +163,7 @@ typedef struct Struct_Obj_Entry {
     size_t tlssize;		/* Size of TLS block for this module */
     size_t tlsoffset;		/* Offset of static TLS block for this module */
     size_t tlsalign;		/* Alignment of static TLS block */
+    size_t tlspoffset;		/* p_offset of the static TLS block */
 
     caddr_t relro_page;
     size_t relro_size;
@@ -264,6 +265,7 @@ typedef struct Struct_Obj_Entry {
     bool dag_inited : 1;	/* Object has its DAG initialized. */
     bool filtees_loaded : 1;	/* Filtees loaded */
     bool irelative : 1;		/* Object has R_MACHDEP_IRELATIVE relocs */
+    bool irelative_nonplt : 1;	/* Object has R_MACHDEP_IRELATIVE non-plt relocs */
     bool gnu_ifunc : 1;		/* Object has references to STT_GNU_IFUNC */
     bool non_plt_gnu_ifunc : 1;	/* Object has non-plt IFUNC references */
     bool ifuncs_resolved : 1;	/* Object ifuncs were already resolved */
@@ -360,11 +362,12 @@ Obj_Entry *map_object(int, const char *, const struct stat *);
 void *xcalloc(size_t, size_t);
 void *xmalloc(size_t);
 char *xstrdup(const char *);
-void *malloc_aligned(size_t size, size_t align);
+void *malloc_aligned(size_t size, size_t align, size_t offset);
 void free_aligned(void *ptr);
 extern Elf_Addr _GLOBAL_OFFSET_TABLE_[];
 extern Elf_Sym sym_zero;	/* For resolving undefined weak refs. */
 extern bool ld_bind_not;
+extern bool ld_fast_sigblock;
 
 void dump_relocations(Obj_Entry *);
 void dump_obj_relocations(Obj_Entry *);
@@ -405,6 +408,7 @@ int reloc_non_plt(Obj_Entry *, Obj_Entry *, int flags,
 int reloc_plt(Obj_Entry *, int flags, struct Struct_RtldLockState *);
 int reloc_jmpslots(Obj_Entry *, int flags, struct Struct_RtldLockState *);
 int reloc_iresolve(Obj_Entry *, struct Struct_RtldLockState *);
+int reloc_iresolve_nonplt(Obj_Entry *, struct Struct_RtldLockState *);
 int reloc_gnu_ifunc(Obj_Entry *, int flags, struct Struct_RtldLockState *);
 void ifunc_init(Elf_Auxinfo[__min_size(AT_COUNT)]);
 void pre_init(void);

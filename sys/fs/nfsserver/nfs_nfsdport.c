@@ -147,7 +147,8 @@ static int nfsrv_pnfsstatfs(struct statfs *, struct mount *);
 
 int nfs_pnfsio(task_fn_t *, void *);
 
-SYSCTL_NODE(_vfs, OID_AUTO, nfsd, CTLFLAG_RW, 0, "NFS server");
+SYSCTL_NODE(_vfs, OID_AUTO, nfsd, CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
+    "NFS server");
 SYSCTL_INT(_vfs_nfsd, OID_AUTO, mirrormnt, CTLFLAG_RW,
     &nfsrv_enable_crossmntpt, 0, "Enable nfsd to cross mount points");
 SYSCTL_INT(_vfs_nfsd, OID_AUTO, commit_blks, CTLFLAG_RW, &nfs_commit_blks,
@@ -6442,7 +6443,6 @@ DECLARE_MODULE(nfsd, nfsd_mod, SI_SUB_VFS, SI_ORDER_ANY);
 /* So that loader and kldload(2) can find us, wherever we are.. */
 MODULE_VERSION(nfsd, 1);
 MODULE_DEPEND(nfsd, nfscommon, 1, 1, 1);
-MODULE_DEPEND(nfsd, nfslock, 1, 1, 1);
 MODULE_DEPEND(nfsd, nfslockd, 1, 1, 1);
 MODULE_DEPEND(nfsd, krpc, 1, 1, 1);
 MODULE_DEPEND(nfsd, nfssvc, 1, 1, 1);

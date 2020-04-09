@@ -1413,21 +1413,11 @@ hdac_poll_reinit(struct hdac_softc *sc)
 		pollticks >>= 1;
 		if (pollticks > hz)
 			pollticks = hz;
-		if (pollticks < 1) {
-			HDA_BOOTVERBOSE(
-				device_printf(sc->dev,
-				    "poll interval < 1 tick !\n");
-			);
+		if (pollticks < 1)
 			pollticks = 1;
-		}
 		if (min > pollticks)
 			min = pollticks;
 	}
-	HDA_BOOTVERBOSE(
-		device_printf(sc->dev,
-		    "poll interval %d -> %d ticks\n",
-		    sc->poll_ival, min);
-	);
 	sc->poll_ival = min;
 	if (min == 1000000)
 		callout_stop(&sc->poll_callout);
@@ -1565,12 +1555,12 @@ hdac_attach2(void *arg)
 
 	SYSCTL_ADD_PROC(device_get_sysctl_ctx(sc->dev),
 	    SYSCTL_CHILDREN(device_get_sysctl_tree(sc->dev)), OID_AUTO,
-	    "pindump", CTLTYPE_INT | CTLFLAG_RW, sc->dev, sizeof(sc->dev),
-	    sysctl_hdac_pindump, "I", "Dump pin states/data");
+	    "pindump", CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_NEEDGIANT, sc->dev,
+	    sizeof(sc->dev), sysctl_hdac_pindump, "I", "Dump pin states/data");
 	SYSCTL_ADD_PROC(device_get_sysctl_ctx(sc->dev),
 	    SYSCTL_CHILDREN(device_get_sysctl_tree(sc->dev)), OID_AUTO,
-	    "polling", CTLTYPE_INT | CTLFLAG_RW, sc->dev, sizeof(sc->dev),
-	    sysctl_hdac_polling, "I", "Enable polling mode");
+	    "polling", CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_NEEDGIANT, sc->dev,
+	    sizeof(sc->dev), sysctl_hdac_polling, "I", "Enable polling mode");
 }
 
 /****************************************************************************

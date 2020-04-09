@@ -892,7 +892,7 @@ init_ktls_key_context(struct ktls_session *tls, struct tls_key_context *k_ctx)
 		k_ctx->tx_key_info_size += GMAC_BLOCK_LEN;
 		memcpy(k_ctx->tx.salt, tls->params.iv, SALT_SIZE);
 		t4_init_gmac_hash(tls->params.cipher_key,
-		    tls->params.cipher_key_len * 8, hash);
+		    tls->params.cipher_key_len, hash);
 	} else {
 		switch (tls->params.auth_algorithm) {
 		case CRYPTO_SHA1_HMAC:
@@ -920,7 +920,7 @@ init_ktls_key_context(struct ktls_session *tls, struct tls_key_context *k_ctx)
 		k_ctx->tx_key_info_size += roundup2(mac_key_size, 16) * 2;
 		k_ctx->mac_secret_size = mac_key_size;
 		t4_init_hmac_digest(axf, mac_key_size, tls->params.auth_key,
-		    tls->params.auth_key_len * 8, hash);
+		    tls->params.auth_key_len, hash);
 	}
 
 	k_ctx->frag_size = tls->params.max_frame_len;
@@ -1559,8 +1559,8 @@ t4_push_tls_records(struct adapter *sc, struct toepcb *toep, int drop)
 		}
 		toep->txsd_avail--;
 
-		atomic_add_long(&toep->vi->pi->tx_tls_records, 1);
-		atomic_add_long(&toep->vi->pi->tx_tls_octets, plen);
+		atomic_add_long(&toep->vi->pi->tx_toe_tls_records, 1);
+		atomic_add_long(&toep->vi->pi->tx_toe_tls_octets, plen);
 
 		t4_l2t_send(sc, wr, toep->l2te);
 	}
@@ -1862,8 +1862,8 @@ t4_push_ktls(struct adapter *sc, struct toepcb *toep, int drop)
 		}
 		toep->txsd_avail--;
 
-		atomic_add_long(&toep->vi->pi->tx_tls_records, 1);
-		atomic_add_long(&toep->vi->pi->tx_tls_octets, m->m_len);
+		atomic_add_long(&toep->vi->pi->tx_toe_tls_records, 1);
+		atomic_add_long(&toep->vi->pi->tx_toe_tls_octets, m->m_len);
 
 		t4_l2t_send(sc, wr, toep->l2te);
 	}
@@ -1899,7 +1899,7 @@ do_tls_data(struct sge_iq *iq, const struct rss_header *rss, struct mbuf *m)
 	m_adj(m, sizeof(*cpl));
 	len = m->m_pkthdr.len;
 
-	atomic_add_long(&toep->vi->pi->rx_tls_octets, len);
+	atomic_add_long(&toep->vi->pi->rx_toe_tls_octets, len);
 
 	KASSERT(len == G_CPL_TLS_DATA_LENGTH(be32toh(cpl->length_pkd)),
 	    ("%s: payload length mismatch", __func__));
@@ -1962,7 +1962,7 @@ do_rx_tls_cmp(struct sge_iq *iq, const struct rss_header *rss, struct mbuf *m)
 	m_adj(m, sizeof(*cpl));
 	len = m->m_pkthdr.len;
 
-	atomic_add_long(&toep->vi->pi->rx_tls_records, 1);
+	atomic_add_long(&toep->vi->pi->rx_toe_tls_records, 1);
 
 	KASSERT(len == G_CPL_RX_TLS_CMP_LENGTH(be32toh(cpl->pdulength_length)),
 	    ("%s: payload length mismatch", __func__));

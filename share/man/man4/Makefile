@@ -79,7 +79,6 @@ MAN=	aac.4 \
 	bhnd_pmu.4 \
 	bhndb.4 \
 	bhndb_pci.4 \
-	bktr.4 \
 	blackhole.4 \
 	bnxt.4 \
 	bpf.4 \
@@ -192,6 +191,7 @@ MAN=	aac.4 \
 	${_hv_vmbus.4} \
 	${_hv_vss.4} \
 	hwpmc.4 \
+	${_hwpstate_intel.4} \
 	iavf.4 \
 	ichsmb.4 \
 	${_ichwd.4} \
@@ -404,6 +404,7 @@ MAN=	aac.4 \
 	pccard.4 \
 	pccbb.4 \
 	pcf.4 \
+	${_pchtherm.4} \
 	pci.4 \
 	pcib.4 \
 	pcic.4 \
@@ -470,6 +471,7 @@ MAN=	aac.4 \
 	sk.4 \
 	${_smartpqi.4} \
 	smb.4 \
+	smbios.4 \
 	smbus.4 \
 	smp.4 \
 	smsc.4 \
@@ -600,7 +602,6 @@ MLINKS+=axe.4 if_axe.4
 MLINKS+=bce.4 if_bce.4
 MLINKS+=bfe.4 if_bfe.4
 MLINKS+=bge.4 if_bge.4
-MLINKS+=bktr.4 brooktree.4
 MLINKS+=bnxt.4 if_bnxt.4
 MLINKS+=bridge.4 if_bridge.4
 MLINKS+=bwi.4 if_bwi.4
@@ -787,6 +788,7 @@ _hv_storvsc.4=	hv_storvsc.4
 _hv_utils.4=	hv_utils.4
 _hv_vmbus.4=	hv_vmbus.4
 _hv_vss.4=	hv_vss.4
+_hwpstate_intel.4=	hwpstate_intel.4
 _i8254.4=	i8254.4
 _ichwd.4=	ichwd.4
 _if_bxe.4=	if_bxe.4
@@ -815,6 +817,7 @@ _nvd.4=		nvd.4
 _nvme.4=	nvme.4
 _nvram.4=	nvram.4
 _padlock.4=	padlock.4
+_pchtherm.4=	pchtherm.4
 _rr232x.4=	rr232x.4
 _speaker.4=	speaker.4
 _spkr.4=	spkr.4

@@ -92,7 +92,7 @@ static int	zfs_env_count;
 SLIST_HEAD(zfs_be_list, zfs_be_entry) zfs_be_head = SLIST_HEAD_INITIALIZER(zfs_be_head);
 struct zfs_be_list *zfs_be_headp;
 struct zfs_be_entry {
-	const char *name;
+	char *name;
 	SLIST_ENTRY(zfs_be_entry) entries;
 } *zfs_be, *zfs_be_tmp;
 
@@ -419,7 +419,7 @@ vdev_read(vdev_t *vdev, void *priv, off_t offset, void *buf, size_t bytes)
 
 	/* Return of partial sector data requires a bounce buffer. */
 	if ((head > 0) || do_tail_read) {
-		bouncebuf = zfs_alloc(secsz);
+		bouncebuf = malloc(secsz);
 		if (bouncebuf == NULL) {
 			printf("vdev_read: out of memory\n");
 			return (ENOMEM);
@@ -464,8 +464,7 @@ vdev_read(vdev_t *vdev, void *priv, off_t offset, void *buf, size_t bytes)
 
 	ret = 0;
 error:
-	if (bouncebuf != NULL)
-		zfs_free(bouncebuf, secsz);
+	free(bouncebuf);
 	return (ret);
 }
 
@@ -907,6 +906,7 @@ zfs_bootenv_initial(const char *name)
 	while (!SLIST_EMPTY(&zfs_be_head)) {
 		zfs_be = SLIST_FIRST(&zfs_be_head);
 		SLIST_REMOVE_HEAD(&zfs_be_head, entries);
+		free(zfs_be->name);
 		free(zfs_be);
 	}
 
@@ -974,6 +974,7 @@ zfs_bootenv(const char *name)
 	while (!SLIST_EMPTY(&zfs_be_head)) {
 		zfs_be = SLIST_FIRST(&zfs_be_head);
 		SLIST_REMOVE_HEAD(&zfs_be_head, entries);
+		free(zfs_be->name);
 		free(zfs_be);
 	}
 
@@ -993,7 +994,11 @@ zfs_belist_add(const char *name, uint64_t value __unused)
 	if (zfs_be == NULL) {
 		return (ENOMEM);
 	}
-	zfs_be->name = name;
+	zfs_be->name = strdup(name);
+	if (zfs_be->name == NULL) {
+		free(zfs_be);
+		return (ENOMEM);
+	}
 	SLIST_INSERT_HEAD(&zfs_be_head, zfs_be, entries);
 	zfs_env_count++;
 
