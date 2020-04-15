@@ -219,6 +219,8 @@
             ..
             atf
             ..
+            kyua
+            ..
             legal
             ..
             llvm
@@ -1251,15 +1253,25 @@
             ..
             Australia
             ..
+            Brazil
+            ..
+            Canada
+            ..
+            Chile
+            ..
             Etc
             ..
             Europe
             ..
             Indian
             ..
+            Mexico
+            ..
             Pacific
             ..
             SystemV
+            ..
+            US
             ..
         ..
     ..
