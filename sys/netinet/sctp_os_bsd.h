@@ -309,8 +309,6 @@ typedef struct callout sctp_os_timer_t;
 #define SCTP_GATHER_MTU_FROM_IFN_INFO(ifn, ifn_index, af) ((struct ifnet *)ifn)->if_mtu
 #define SCTP_GATHER_MTU_FROM_ROUTE(sctp_ifa, sa, nh) ((uint32_t)((nh != NULL) ? nh->nh_mtu : 0))
 #define SCTP_GATHER_MTU_FROM_INTFC(sctp_ifn) ((sctp_ifn->ifn_p != NULL) ? ((struct ifnet *)(sctp_ifn->ifn_p))->if_mtu : 0)
-/* XXX: Setting MTU from the protocol in this way is simply incorrect */
-#define SCTP_SET_MTU_OF_ROUTE(sa, rt, mtu)
 
 /* (de-)register interface event notifications */
 #define SCTP_REGISTER_INTERFACE(ifhandle, af)
@@ -402,10 +400,7 @@ typedef struct route sctp_route_t;
 #define SCTP_RTALLOC(ro, vrf_id, fibnum) \
 { \
 	if ((ro)->ro_nh == NULL) { \
-	if ((ro)->ro_dst.sa_family == AF_INET) \
-		(ro)->ro_nh = fib4_lookup(fibnum, ((struct sockaddr_in *)&(ro)->ro_dst)->sin_addr, 0, NHR_REF, 0); \
-	if ((ro)->ro_dst.sa_family == AF_INET6) \
-		(ro)->ro_nh = fib6_lookup(fibnum, &((struct sockaddr_in6 *)&(ro)->ro_dst)->sin6_addr, 0, NHR_REF, 0); \
+		(ro)->ro_nh = rib_lookup(fibnum, &(ro)->ro_dst, NHR_REF, 0); \
 	} \
 }
 

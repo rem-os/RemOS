@@ -31,6 +31,7 @@ SRCS=	\
 	hda_codec.c		\
 	inout.c			\
 	ioapic.c		\
+	kernemu_dev.c		\
 	mem.c			\
 	mevent.c		\
 	mptbl.c			\
@@ -76,6 +77,8 @@ SRCS=	\
 SRCS+=	snapshot.c
 .endif
 
+CFLAGS.kernemu_dev.c+=	-I${SRCTOP}/sys/amd64
+
 .PATH:  ${BHYVE_SYSDIR}/sys/amd64/vmm
 SRCS+=	vmm_instruction_emul.c
 
@@ -89,6 +92,10 @@ CFLAGS+=-DINET
 .endif
 .if ${MK_INET6_SUPPORT} != "no"
 CFLAGS+=-DINET6
+.endif
+.if ${MK_NETGRAPH_SUPPORT} != "no"
+CFLAGS+=-DNETGRAPH
+LIBADD+=    netgraph
 .endif
 .if ${MK_OPENSSL} == "no"
 CFLAGS+=-DNO_OPENSSL

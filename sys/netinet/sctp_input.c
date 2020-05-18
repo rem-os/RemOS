@@ -4692,7 +4692,9 @@ sctp_process_control(struct mbuf *m, int iphlen, int *offset, int length,
 			}
 		}
 		if (stcb == NULL) {
-			snprintf(msg, sizeof(msg), "OOTB, %s:%d at %s", __FILE__, __LINE__, __func__);
+			if (snprintf(msg, sizeof(msg), "OOTB, %s:%d at %s", __FILE__, __LINE__, __func__) < 0) {
+				msg[0] = '\0';
+			}
 			op_err = sctp_generate_cause(SCTP_BASE_SYSCTL(sctp_diag_info_code),
 			    msg);
 			/* no association, so it's out of the blue... */
@@ -4734,7 +4736,9 @@ sctp_process_control(struct mbuf *m, int iphlen, int *offset, int length,
 				if (stcb != NULL) {
 					SCTP_TCB_UNLOCK(stcb);
 				}
-				snprintf(msg, sizeof(msg), "OOTB, %s:%d at %s", __FILE__, __LINE__, __func__);
+				if (snprintf(msg, sizeof(msg), "OOTB, %s:%d at %s", __FILE__, __LINE__, __func__) < 0) {
+					msg[0] = '\0';
+				}
 				op_err = sctp_generate_cause(SCTP_BASE_SYSCTL(sctp_diag_info_code),
 				    msg);
 				sctp_handle_ootb(m, iphlen, *offset, src, dst,
@@ -5225,7 +5229,7 @@ process_control_chunks:
 					auth_skipped = 0;
 				}
 				/* Restart the timer if we have pending data */
-				TAILQ_FOREACH(chk, &asoc->sent_queue, sctp_next) {
+				TAILQ_FOREACH(chk, &stcb->asoc.sent_queue, sctp_next) {
 					if (chk->whoTo != NULL) {
 						break;
 					}
@@ -5671,7 +5675,9 @@ sctp_common_input_processing(struct mbuf **mm, int iphlen, int offset, int lengt
 			SCTP_TCB_UNLOCK(stcb);
 			stcb = NULL;
 			SCTP_PROBE5(receive, NULL, stcb, m, stcb, sh);
-			snprintf(msg, sizeof(msg), "OOTB, %s:%d at %s", __FILE__, __LINE__, __func__);
+			if (snprintf(msg, sizeof(msg), "OOTB, %s:%d at %s", __FILE__, __LINE__, __func__) < 0) {
+				msg[0] = '\0';
+			}
 			op_err = sctp_generate_cause(SCTP_BASE_SYSCTL(sctp_diag_info_code),
 			    msg);
 			sctp_handle_ootb(m, iphlen, offset, src, dst, sh, inp, op_err,
@@ -5733,7 +5739,9 @@ sctp_common_input_processing(struct mbuf **mm, int iphlen, int offset, int lengt
 		if (stcb == NULL) {
 			/* out of the blue DATA chunk */
 			SCTP_PROBE5(receive, NULL, NULL, m, NULL, sh);
-			snprintf(msg, sizeof(msg), "OOTB, %s:%d at %s", __FILE__, __LINE__, __func__);
+			if (snprintf(msg, sizeof(msg), "OOTB, %s:%d at %s", __FILE__, __LINE__, __func__) < 0) {
+				msg[0] = '\0';
+			}
 			op_err = sctp_generate_cause(SCTP_BASE_SYSCTL(sctp_diag_info_code),
 			    msg);
 			sctp_handle_ootb(m, iphlen, offset, src, dst, sh, inp, op_err,
@@ -5799,7 +5807,9 @@ sctp_common_input_processing(struct mbuf **mm, int iphlen, int offset, int lengt
 			/*
 			 * We consider OOTB any data sent during asoc setup.
 			 */
-			snprintf(msg, sizeof(msg), "OOTB, %s:%d at %s", __FILE__, __LINE__, __func__);
+			if (snprintf(msg, sizeof(msg), "OOTB, %s:%d at %s", __FILE__, __LINE__, __func__) < 0) {
+				msg[0] = '\0';
+			}
 			op_err = sctp_generate_cause(SCTP_BASE_SYSCTL(sctp_diag_info_code),
 			    msg);
 			sctp_handle_ootb(m, iphlen, offset, src, dst, sh, inp, op_err,
