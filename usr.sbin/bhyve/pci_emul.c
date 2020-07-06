@@ -210,8 +210,9 @@ pci_parse_legacy_config(nvlist_t *nvl, const char *opt)
 int
 pci_parse_slot(char *opt)
 {
+	char node_name[sizeof("pci.XXX.XX.X")];
 	struct pci_devemu *pde;
-	char *emul, *config, *str, *cp, *node_name;
+	char *emul, *config, *str, *cp;
 	int error, bnum, snum, fnum;
 	nvlist_t *nvl;
 
@@ -250,9 +251,8 @@ pci_parse_slot(char *opt)
 		goto done;
 	}
 
-	asprintf(&node_name, "pci.%d.%d.%d", bnum, snum, fnum);
+	snprintf(node_name, sizeof(node_name), "pci.%d.%d.%d", bnum, snum, fnum);
 	nvl = create_config_node(node_name);
-	free(node_name);
 	set_config_value_node(nvl, "device", emul);
 
 	pde = pci_emul_finddev(emul);
@@ -1129,8 +1129,7 @@ pci_ecfg_base(void)
 int
 init_pci(struct vmctx *ctx)
 {
-	/* pci.XXX.XX.X */
-	char node_name[16];
+	char node_name[sizeof("pci.XXX.XX.X")];
 	struct mem_range mr;
 	struct pci_devemu *pde;
 	struct businfo *bi;
