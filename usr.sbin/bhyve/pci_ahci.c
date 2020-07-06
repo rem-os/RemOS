@@ -2326,7 +2326,7 @@ pci_ahci_read(struct vmctx *ctx, int vcpu, struct pci_devinst *pi, int baridx,
  */
 static int
 pci_ahci_legacy_config_port(nvlist_t *nvl, int port, const char *type,
-    char *opts)
+    const char *opts)
 {
 	char node_name[sizeof("XX")];
 	nvlist_t *port_nvl;
@@ -2349,7 +2349,7 @@ pci_ahci_legacy_config_port(nvlist_t *nvl, int port, const char *type,
 }
 
 static int
-pci_ahci_legacy_config(nvlist_t *nvl, char *opts)
+pci_ahci_legacy_config(nvlist_t *nvl, const char *opts)
 {
 	nvlist_t *ports_nvl;
 	const char *type;
@@ -2399,7 +2399,7 @@ out:
 }
 
 static int
-pci_ahci_cd_legacy_config(nvlist_t *nvl, char *opts)
+pci_ahci_cd_legacy_config(nvlist_t *nvl, const char *opts)
 {
 	nvlist_t *ports_nvl;
 
@@ -2408,7 +2408,7 @@ pci_ahci_cd_legacy_config(nvlist_t *nvl, char *opts)
 }
 
 static int
-pci_ahci_hd_legacy_config(nvlist_t *nvl, char *opts)
+pci_ahci_hd_legacy_config(nvlist_t *nvl, const char *opts)
 {
 	nvlist_t *ports_nvl;
 
