@@ -45,6 +45,7 @@ __FBSDID("$FreeBSD$");
 #include "acpi.h"
 #include "debug.h"
 #include "bootrom.h"
+#include "config.h"
 #include "inout.h"
 #include "pci_emul.h"
 #include "pci_irq.h"
@@ -67,12 +68,9 @@ SYSRES_IO(NMISC_PORT, 1);
 
 static struct pci_devinst *lpc_bridge;
 
-static const char *romfile;
-
 #define	LPC_UART_NUM	2
 static struct lpc_uart_softc {
 	struct uart_softc *uart_softc;
-	const char *opts;
 	int	iobase;
 	int	irq;
 	int	enabled;
@@ -89,20 +87,22 @@ int
 lpc_device_parse(const char *opts)
 {
 	int unit, error;
-	char *str, *cpy, *lpcdev;
+	char *str, *cpy, *lpcdev, *node_name;
 
 	error = -1;
 	str = cpy = strdup(opts);
 	lpcdev = strsep(&str, ",");
 	if (lpcdev != NULL) {
 		if (strcasecmp(lpcdev, "bootrom") == 0) {
-			romfile = str;
+			set_config_value("lpc.bootrom", str);
 			error = 0;
 			goto done;
 		}
 		for (unit = 0; unit < LPC_UART_NUM; unit++) {
 			if (strcasecmp(lpcdev, lpc_uart_names[unit]) == 0) {
-				lpc_uart_softc[unit].opts = str;
+				asprintf(&node_name, "lpc.%s.device", lpcdev);
+				set_config_value(node_name, str);
+				free(node_name);
 				error = 0;
 				goto done;
 			}
@@ -110,8 +110,7 @@ lpc_device_parse(const char *opts)
 	}
 
 done:
-	if (error)
-		free(cpy);
+	free(cpy);
 
 	return (error);
 }
@@ -130,7 +129,7 @@ const char *
 lpc_bootrom(void)
 {
 
-	return (romfile);
+	return (get_config_value("lpc.bootrom"));
 }
 
 static void
@@ -189,9 +188,11 @@ lpc_init(struct vmctx *ctx)
 {
 	struct lpc_uart_softc *sc;
 	struct inout_port iop;
-	const char *name;
+	const char *backend, *name, *romfile;
+	char *node_name;
 	int unit, error;
 
+	romfile = get_config_value("lpc.bootrom");
 	if (romfile != NULL) {
 		error = bootrom_loadrom(ctx, romfile);
 		if (error)
@@ -213,9 +214,12 @@ lpc_init(struct vmctx *ctx)
 		sc->uart_softc = uart_init(lpc_uart_intr_assert,
 				    lpc_uart_intr_deassert, sc);
 
-		if (uart_set_backend(sc->uart_softc, sc->opts) != 0) {
+		asprintf(&node_name, "lpc.%s.device", name);
+		backend = get_config_value(node_name);
+		free(node_name);
+		if (uart_set_backend(sc->uart_softc, backend) != 0) {
 			EPRINTLN("Unable to initialize backend '%s' "
-			    "for LPC device %s", sc->opts, name);
+			    "for LPC device %s", backend, name);
 			return (-1);
 		}
 
@@ -393,7 +397,7 @@ pci_lpc_read(struct vmctx *ctx, int vcpu, struct pci_devinst *pi,
 #define	LPC_VENDOR	0x8086
 
 static int
-pci_lpc_init(struct vmctx *ctx, struct pci_devinst *pi, char *opts)
+pci_lpc_init(struct vmctx *ctx, struct pci_devinst *pi, nvlist_t *nvl)
 {
 
 	/*
