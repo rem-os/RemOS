@@ -180,7 +180,12 @@ aesni_attach(device_t dev)
 	    M_WAITOK|M_ZERO);
 
 	CPU_FOREACH(i) {
-		ctx_fpu[i] = fpu_kern_alloc_ctx(0);
+#ifdef __amd64__
+		ctx_fpu[i] = fpu_kern_alloc_ctx_domain(
+		    pcpu_find(i)->pc_domain, FPU_KERN_NORMAL);
+#else
+		ctx_fpu[i] = fpu_kern_alloc_ctx(FPU_KERN_NORMAL);
+#endif
 		mtx_init(&ctx_mtx[i], "anifpumtx", NULL, MTX_DEF|MTX_NEW);
 	}
 
@@ -808,18 +813,12 @@ aesni_cipher_crypt(struct aesni_session *ses, struct cryptop *crp,
 		    crp->crp_payload_length, outbuf);
 
 out:
-	if (allocated) {
-		explicit_bzero(buf, crp->crp_payload_length);
-		free(buf, M_AESNI);
-	}
-	if (authallocated) {
-		explicit_bzero(authbuf, crp->crp_aad_length);
-		free(authbuf, M_AESNI);
-	}
-	if (outallocated) {
-		explicit_bzero(outbuf, crp->crp_payload_length);
-		free(outbuf, M_AESNI);
-	}
+	if (allocated)
+		zfree(buf, M_AESNI);
+	if (authallocated)
+		zfree(authbuf, M_AESNI);
+	if (outallocated)
+		zfree(outbuf, M_AESNI);
 	explicit_bzero(iv, sizeof(iv));
 	explicit_bzero(tag, sizeof(tag));
 	return (error);

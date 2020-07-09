@@ -765,6 +765,13 @@ vdev_disk_read(vdev_t *vdev, const blkptr_t *bp, void *buf,
 	    offset + VDEV_LABEL_START_SIZE, bytes));
 }
 
+static int
+vdev_missing_read(vdev_t *vdev __unused, const blkptr_t *bp __unused,
+    void *buf __unused, off_t offset __unused, size_t bytes __unused)
+{
+
+	return (ENOTSUP);
+}
 
 static int
 vdev_mirror_read(vdev_t *vdev, const blkptr_t *bp, void *buf,
@@ -904,9 +911,10 @@ vdev_init(uint64_t guid, const nvlist_t *nvlist, vdev_t **vdevp)
 #endif
 	    memcmp(type, VDEV_TYPE_RAIDZ, len) != 0 &&
 	    memcmp(type, VDEV_TYPE_INDIRECT, len) != 0 &&
-	    memcmp(type, VDEV_TYPE_REPLACING, len) != 0) {
+	    memcmp(type, VDEV_TYPE_REPLACING, len) != 0 &&
+	    memcmp(type, VDEV_TYPE_HOLE, len) != 0) {
 		printf("ZFS: can only boot from disk, mirror, raidz1, "
-		    "raidz2 and raidz3 vdevs\n");
+		    "raidz2 and raidz3 vdevs, got: %.*s\n", len, type);
 		return (EIO);
 	}
 
@@ -937,6 +945,8 @@ vdev_init(uint64_t guid, const nvlist_t *nvlist, vdev_t **vdevp)
 			    DATA_TYPE_UINT64,
 			    NULL, &vic->vic_prev_indirect_vdev, NULL);
 		}
+	} else if (memcmp(type, VDEV_TYPE_HOLE, len) == 0) {
+		vdev = vdev_create(guid, vdev_missing_read);
 	} else {
 		vdev = vdev_create(guid, vdev_disk_read);
 	}
@@ -1101,14 +1111,20 @@ vdev_from_nvlist(spa_t *spa, uint64_t top_guid, const nvlist_t *nvlist)
 				return (rc);
 			}
 			rc = vdev_init(guid, kids, &vdev);
-			if (rc != 0)
+			if (rc != 0) {
+				nvlist_destroy(kids);
 				return (rc);
+			}
 
 			vdev->v_spa = spa;
 			vdev->v_top = top_vdev;
 			vdev_insert(top_vdev, vdev);
 
 			rc = nvlist_next(kids);
+			if (rc != 0) {
+				nvlist_destroy(kids);
+				return (rc);
+			}
 		}
 	} else {
 		/*
@@ -1218,6 +1234,8 @@ vdev_update_from_nvlist(uint64_t top_guid, const nvlist_t *nvlist)
 				vdev_set_initial_state(vdev, kids);
 
 			rc = nvlist_next(kids);
+			if (rc != 0)
+				break;
 		}
 	} else {
 		rc = 0;
@@ -1280,7 +1298,9 @@ vdev_init_from_nvlist(spa_t *spa, const nvlist_t *nvlist)
 			rc = vdev_update_from_nvlist(guid, kids);
 		if (rc != 0)
 			break;
-		nvlist_next(kids);
+		rc = nvlist_next(kids);
+		if (rc != 0)
+			break;
 	}
 	nvlist_destroy(kids);
 
@@ -1315,34 +1335,6 @@ spa_find_by_name(const char *name)
 
 	return (NULL);
 }
-
-#ifdef BOOT2
-static spa_t *
-spa_get_primary(void)
-{
-
-	return (STAILQ_FIRST(&zfs_pools));
-}
-
-static vdev_t *
-spa_get_primary_vdev(const spa_t *spa)
-{
-	vdev_t *vdev;
-	vdev_t *kid;
-
-	if (spa == NULL)
-		spa = spa_get_primary();
-	if (spa == NULL)
-		return (NULL);
-	vdev = spa->spa_root_vdev;
-	if (vdev == NULL)
-		return (NULL);
-	for (kid = STAILQ_FIRST(&vdev->v_children); kid != NULL;
-	    kid = STAILQ_FIRST(&vdev->v_children))
-		vdev = kid;
-	return (vdev);
-}
-#endif
 
 static spa_t *
 spa_create(uint64_t guid, const char *name)
@@ -1594,6 +1586,57 @@ vdev_label_read(vdev_t *vd, int l, void *buf, uint64_t offset,
 	return (vdev_read_phys(vd, &bp, buf, off, size));
 }
 
+static uint64_t
+vdev_get_label_asize(nvlist_t *nvl)
+{
+	nvlist_t *vdevs;
+	uint64_t asize;
+	const char *type;
+	int len;
+
+	asize = 0;
+	/* Get vdev tree */
+	if (nvlist_find(nvl, ZPOOL_CONFIG_VDEV_TREE, DATA_TYPE_NVLIST,
+	    NULL, &vdevs, NULL) != 0)
+		return (asize);
+
+	/*
+	 * Get vdev type. We will calculate asize for raidz, mirror and disk.
+	 * For raidz, the asize is raw size of all children.
+	 */
+	if (nvlist_find(vdevs, ZPOOL_CONFIG_TYPE, DATA_TYPE_STRING,
+	    NULL, &type, &len) != 0)
+		goto done;
+
+	if (memcmp(type, VDEV_TYPE_MIRROR, len) != 0 &&
+	    memcmp(type, VDEV_TYPE_DISK, len) != 0 &&
+	    memcmp(type, VDEV_TYPE_RAIDZ, len) != 0)
+		goto done;
+
+	if (nvlist_find(vdevs, ZPOOL_CONFIG_ASIZE, DATA_TYPE_UINT64,
+	    NULL, &asize, NULL) != 0)
+		goto done;
+
+	if (memcmp(type, VDEV_TYPE_RAIDZ, len) == 0) {
+		nvlist_t *kids;
+		int nkids;
+
+		if (nvlist_find(vdevs, ZPOOL_CONFIG_CHILDREN,
+		    DATA_TYPE_NVLIST_ARRAY, &nkids, &kids, NULL) != 0) {
+			asize = 0;
+			goto done;
+		}
+
+		asize /= nkids;
+		nvlist_destroy(kids);
+	}
+
+	asize += VDEV_LABEL_START_SIZE + VDEV_LABEL_END_SIZE;
+done:
+	nvlist_destroy(vdevs);
+	return (asize);
+}
+
 static nvlist_t *
 vdev_label_read_config(vdev_t *vd, uint64_t txg)
 {
@@ -1639,10 +1682,9 @@ vdev_label_read_config(vdev_t *vd, uint64_t txg)
 			 * Use asize from pool config. We need this
 			 * because we can get bad value from BIOS.
 			 */
-			if (nvlist_find(nvl, ZPOOL_CONFIG_ASIZE,
-			    DATA_TYPE_UINT64, NULL, &asize, NULL) == 0) {
-				vd->v_psize = asize +
-				    VDEV_LABEL_START_SIZE + VDEV_LABEL_END_SIZE;
+			asize = vdev_get_label_asize(nvl);
+			if (asize != 0) {
+				vd->v_psize = asize;
 			}
 		}
 		nvlist_destroy(tmp);
