@@ -1,5 +1,44 @@
 # News
 
+## 3.1.4
+
+This is a production release that fixes one bug, changes two behaviors, and
+removes one environment variable.
+
+The bug is like the one in the last release except it applies if files are being
+executed. I also made the fix more general.
+
+The behavior that was changed is that `bc` now exits when given `-e`, `-f`,
+`--expression` or `--file`. However, if the last one of those is `-f-` (using
+`stdin` as the file), `bc` does not exit. If `-f-` exists and is not the last of
+the `-e` and `-f` options (and equivalents), `bc` gives a fatal error and exits.
+
+Next, I removed the `BC_EXPR_EXIT` and `DC_EXPR_EXIT` environment variables
+since their use is not needed with the behavior change.
+
+Finally, I made it so `bc` does not print the header, though the `-q` and
+`--quiet` options were kept for compatibility with GNU `bc`.
+
+## 3.1.3
+
+This is a production release that fixes one minor bug: if `bc` was invoked like
+the following, it would error:
+
+```
+echo "if (1 < 3) 1" | bc
+```
+
+Unless users run into this bug, they do not need to upgrade, but it is suggested
+that they do.
+
+## 3.1.2
+
+This is a production release that adds a way to install *all* locales. Users do
+***NOT*** need to upgrade.
+
+For package maintainers wishing to make use of the change, just pass `-l` to
+`configure.sh`.
+
 ## 3.1.1
 
 This is a production release that adds two Spanish locales. Users do ***NOT***
