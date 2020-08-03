@@ -56,6 +56,8 @@ static pthread_cond_t accept_condvar = PTHREAD_COND_INITIALIZER;
 
 static struct mevent *tevp;
 
+char *vmname = "test vm";
+
 
 #define MEVENT_ECHO
 

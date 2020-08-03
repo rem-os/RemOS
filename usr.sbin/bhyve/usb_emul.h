@@ -31,7 +31,6 @@
 #ifndef _USB_EMUL_H_
 #define _USB_EMUL_H_
 
-#include <sys/nv.h>
 #include <stdlib.h>
 #include <sys/linker_set.h>
 #include <pthread.h>
@@ -54,7 +53,7 @@ struct usb_devemu {
 	int	ue_usbspeed;	/* usb device speed */
 
 	/* instance creation */
-	void	*(*ue_init)(struct usb_hci *hci, nvlist_t *nvl);
+	void	*(*ue_init)(struct usb_hci *hci, char *opt);
 
 	/* handlers */
 	int	(*ue_request)(void *sc, struct usb_data_xfer *xfer);
@@ -150,7 +149,7 @@ enum USB_ERRCODE {
 			pthread_mutex_unlock(&((x)->mtx));		\
 		} while (0)
 
-struct usb_devemu *usb_emu_finddev(const char *name);
+struct usb_devemu *usb_emu_finddev(char *name);
 
 struct usb_data_xfer_block *usb_data_xfer_append(struct usb_data_xfer *xfer,
                           void *buf, int blen, void *hci_data, int ccs);

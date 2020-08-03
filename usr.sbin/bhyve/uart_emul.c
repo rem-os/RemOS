@@ -673,7 +673,7 @@ uart_stdio_backend(struct uart_softc *sc)
 }
 
 static int
-uart_tty_backend(struct uart_softc *sc, const char *path)
+uart_tty_backend(struct uart_softc *sc, const char *opts)
 {
 #ifndef WITHOUT_CAPSICUM
 	cap_rights_t rights;
@@ -681,7 +681,7 @@ uart_tty_backend(struct uart_softc *sc, const char *path)
 #endif
 	int fd;
 
-	fd = open(path, O_RDWR | O_NONBLOCK);
+	fd = open(opts, O_RDWR | O_NONBLOCK);
 	if (fd < 0)
 		return (-1);
 
@@ -705,17 +705,17 @@ uart_tty_backend(struct uart_softc *sc, const char *path)
 }
 
 int
-uart_set_backend(struct uart_softc *sc, const char *device)
+uart_set_backend(struct uart_softc *sc, const char *opts)
 {
 	int retval;
 
-	if (device == NULL)
+	if (opts == NULL)
 		return (0);
 
-	if (strcmp("stdio", device) == 0)
+	if (strcmp("stdio", opts) == 0)
 		retval = uart_stdio_backend(sc);
 	else
-		retval = uart_tty_backend(sc, device);
+		retval = uart_tty_backend(sc, opts);
 	if (retval == 0)
 		uart_opentty(sc);
 

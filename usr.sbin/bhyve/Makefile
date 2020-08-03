@@ -21,7 +21,6 @@ SRCS=	\
 	bhyverun.c		\
 	block_if.c		\
 	bootrom.c		\
-	config.c		\
 	console.c		\
 	consport.c		\
 	ctl_util.c		\
@@ -83,7 +82,7 @@ CFLAGS.kernemu_dev.c+=	-I${SRCTOP}/sys/amd64
 .PATH:  ${BHYVE_SYSDIR}/sys/amd64/vmm
 SRCS+=	vmm_instruction_emul.c
 
-LIBADD=	vmmapi md nv pthread z util sbuf cam
+LIBADD=	vmmapi md pthread z util sbuf cam
 .if ${MK_BHYVE_SNAPSHOT} != "no"
 LIBADD+= ucl xo
 .endif

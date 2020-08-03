@@ -241,6 +241,8 @@ struct umouse_bos_desc umouse_bosd = {
 struct umouse_softc {
 	struct usb_hci *hci;
 
+	char	*opt;
+
 	struct umouse_report um_report;
 	int	newdata;
 	struct {
@@ -297,7 +299,7 @@ umouse_event(uint8_t button, int x, int y, void *arg)
 }
 
 static void *
-umouse_init(struct usb_hci *hci, nvlist_t *nvl)
+umouse_init(struct usb_hci *hci, char *opt)
 {
 	struct umouse_softc *sc;
 
@@ -305,6 +307,7 @@ umouse_init(struct usb_hci *hci, nvlist_t *nvl)
 	sc->hci = hci;
 
 	sc->hid.protocol = 1;	/* REPORT protocol */
+	sc->opt = strdup(opt);
 	pthread_mutex_init(&sc->mtx, NULL);
 	pthread_mutex_init(&sc->ev_mtx, NULL);
 
