@@ -638,6 +638,7 @@ int	cache_lookup(struct vnode *dvp, struct vnode **vpp,
 	    struct componentname *cnp, struct timespec *tsp, int *ticksp);
 void	cache_vnode_init(struct vnode *vp);
 void	cache_purge(struct vnode *vp);
+void	cache_purge_vgone(struct vnode *vp);
 void	cache_purge_negative(struct vnode *vp);
 void	cache_purgevfs(struct mount *mp, bool force);
 int	change_dir(struct vnode *vp, struct thread *td);
@@ -666,18 +667,15 @@ int	vn_commname(struct vnode *vn, char *buf, u_int buflen);
 int	vn_path_to_global_path(struct thread *td, struct vnode *vp,
 	    char *path, u_int pathlen);
 int	vaccess(enum vtype type, mode_t file_mode, uid_t file_uid,
-	    gid_t file_gid, accmode_t accmode, struct ucred *cred,
-	    int *privused);
+	    gid_t file_gid, accmode_t accmode, struct ucred *cred);
 int	vaccess_vexec_smr(mode_t file_mode, uid_t file_uid, gid_t file_gid,
 	    struct ucred *cred);
 int	vaccess_acl_nfs4(enum vtype type, uid_t file_uid, gid_t file_gid,
-	    struct acl *aclp, accmode_t accmode, struct ucred *cred,
-	    int *privused);
+	    struct acl *aclp, accmode_t accmode, struct ucred *cred);
 int	vaccess_acl_posix1e(enum vtype type, uid_t file_uid,
 	    gid_t file_gid, struct acl *acl, accmode_t accmode,
-	    struct ucred *cred, int *privused);
+	    struct ucred *cred);
 void	vattr_null(struct vattr *vap);
-int	vcount(struct vnode *vp);
 void	vlazy(struct vnode *);
 void	vdrop(struct vnode *);
 void	vdropl(struct vnode *);
@@ -738,8 +736,6 @@ int	vn_rdwr_inchunks(enum uio_rw rw, struct vnode *vp, void *base,
 	    struct thread *td);
 int	vn_rlimit_fsize(const struct vnode *vn, const struct uio *uio,
 	    struct thread *td);
-int	vn_stat(struct vnode *vp, struct stat *sb, struct ucred *active_cred,
-	    struct ucred *file_cred, struct thread *td);
 int	vn_start_write(struct vnode *vp, struct mount **mpp, int flags);
 int	vn_start_secondary_write(struct vnode *vp, struct mount **mpp,
 	    int flags);
@@ -763,6 +759,8 @@ int	vn_io_fault_uiomove(char *data, int xfersize, struct uio *uio);
 int	vn_io_fault_pgmove(vm_page_t ma[], vm_offset_t offset, int xfersize,
 	    struct uio *uio);
 
+void	vn_seqc_write_begin_unheld_locked(struct vnode *vp);
+void	vn_seqc_write_begin_unheld(struct vnode *vp);
 void	vn_seqc_write_begin_locked(struct vnode *vp);
 void	vn_seqc_write_begin(struct vnode *vp);
 void	vn_seqc_write_end_locked(struct vnode *vp);
@@ -892,6 +890,22 @@ void	vop_need_inactive_debugpost(void *a, int rc);
 
 void	vop_rename_fail(struct vop_rename_args *ap);
 
+#define	vop_stat_helper_pre(ap)	({						\
+	int _error;								\
+	AUDIT_ARG_VNODE1(ap->a_vp);						\
+	_error = mac_vnode_check_stat(ap->a_active_cred, ap->a_file_cred, ap->a_vp);\
+	if (__predict_true(_error == 0))					\
+		bzero(ap->a_sb, sizeof(*ap->a_sb));				\
+	_error;									\
+})
+
+#define	vop_stat_helper_post(ap, error)	({					\
+	int _error = (error);							\
+	if (priv_check_cred_vfs_generation(ap->a_td->td_ucred))			\
+		ap->a_sb->st_gen = 0;						\
+	_error;									\
+})
+
 #define	VOP_WRITE_PRE(ap)						\
 	struct vattr va;						\
 	int error;							\
@@ -953,9 +967,13 @@ void	vrele(struct vnode *vp);
 void	vref(struct vnode *vp);
 void	vrefl(struct vnode *vp);
 void	vrefact(struct vnode *vp);
-void	vrefactn(struct vnode *vp, u_int n);
-int	vrefcnt(struct vnode *vp);
 void 	v_addpollinfo(struct vnode *vp);
+static __inline int
+vrefcnt(struct vnode *vp)
+{
+
+	return (vp->v_usecount);
+}
 
 int vnode_create_vobject(struct vnode *vp, off_t size, struct thread *td);
 void vnode_destroy_vobject(struct vnode *vp);
