@@ -1,16 +1,8 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
  *
- * Copyright 2018-2020 Alex Richardson <arichardson@FreeBSD.org>
- *
- * This software was developed by SRI International and the University of
- * Cambridge Computer Laboratory (Department of Computer Science and
- * Technology) under DARPA contract HR0011-18-C-0016 ("ECATS"), as part of the
- * DARPA SSITH research programme.
- *
- * This software was developed by SRI International and the University of
- * Cambridge Computer Laboratory under DARPA/AFRL contract (FA8750-10-C-0237)
- * ("CTSRD"), as part of the DARPA CRASH research programme.
+ * Copyright (c) 2020 Juraj Lutter <juraj@lutter.sk>
+ * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,20 +24,63 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
-#pragma once
-#include_next <sys/uio.h>
 
-/* needed by opensolaris: */
-#ifdef __linux__
-enum uio_rw { UIO_READ, UIO_WRITE };
+#include <sys/cdefs.h>
+__FBSDID("$FreeBSD$");
 
-/* Segment flag values. */
-enum uio_seg {
-	UIO_USERSPACE, /* from user data space */
-	UIO_SYSSPACE, /* from system space */
-	UIO_NOCOPY /* don't copy, already in object */
-};
-#endif
+#include <sys/param.h>
+#include <sys/sysctl.h>
+#include <sys/user.h>
+
+#include <err.h>
+#include <errno.h>
+#include <libprocstat.h>
+#include <limits.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "procstat.h"
+
+void
+procstat_pargs(struct procstat *procstat, struct kinfo_proc *kipp)
+{
+	int i;
+	char **args;
+
+	args = procstat_getargv(procstat, kipp, 0);
+
+	xo_emit("{k:process_id/%d}:  {:command/%s/%s}\n", kipp->ki_pid,
+	    kipp->ki_comm);
+
+	if (args == NULL) {
+		xo_emit("{d:args/-}\n");
+	} else {
+		for (i = 0; args[i] != NULL; i++) {
+			xo_emit("{Ld:argv[}{Ld:/%d}{Ldwc:]}{l:argv/%s}\n",
+			    i, args[i]);
+		}
+	}
+}
+
+void
+procstat_penv(struct procstat *procstat, struct kinfo_proc *kipp)
+{
+	int i;
+	char **envs;
+
+	envs = procstat_getenvv(procstat, kipp, 0);
+
+	xo_emit("{k:process_id/%d}:  {:command/%s/%s}\n", kipp->ki_pid,
+	    kipp->ki_comm);
+
+	if (envs == NULL) {
+		xo_emit("{d:env/-}\n");
+	} else {
+		for (i = 0; envs[i] != NULL; i++) {
+			xo_emit("{Ld:envp[}{Ld:/%d}{Ldwc:]}{l:envp/%s}\n",
+			    i, envs[i]);
+		}
+	}
+}
