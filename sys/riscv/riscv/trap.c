@@ -117,9 +117,8 @@ cpu_fetch_syscall_args(struct thread *td)
 	else
 		sa->callp = &p->p_sysent->sv_table[sa->code];
 
-	sa->narg = sa->callp->sy_narg;
 	memcpy(sa->args, ap, nap * sizeof(register_t));
-	if (sa->narg > nap)
+	if (sa->callp->sy_narg > nap)
 		panic("TODO: Could we have more then %d args?", NARGREG);
 
 	td->td_retval[0] = 0;
@@ -283,6 +282,9 @@ do_trap_supervisor(struct trapframe *frame)
 	case EXCP_FAULT_LOAD:
 	case EXCP_FAULT_STORE:
 	case EXCP_FAULT_FETCH:
+		dump_regs(frame);
+		panic("Memory access exception at 0x%016lx\n", frame->tf_sepc);
+		break;
 	case EXCP_STORE_PAGE_FAULT:
 	case EXCP_LOAD_PAGE_FAULT:
 		data_abort(frame, 0);

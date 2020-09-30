@@ -79,7 +79,7 @@ syscallenter(struct thread *td)
 	error = (p->p_sysent->sv_fetch_syscall_args)(td);
 #ifdef KTRACE
 	if (KTRPOINT(td, KTR_SYSCALL))
-		ktrsyscall(sa->code, sa->narg, sa->args);
+		ktrsyscall(sa->code, sa->callp->sy_narg, sa->args);
 #endif
 	KTR_START4(KTR_SYSC, "syscall", syscallname(p, sa->code),
 	    (uintptr_t)td, "pid:%d", td->td_proc->p_pid, "arg0:%p", sa->args[0],
@@ -90,7 +90,7 @@ syscallenter(struct thread *td)
 		goto retval;
 	}
 
-	if (__predict_false((p->p_flag & P_TRACED) != 0)) {
+	if (__predict_false(traced)) {
 		PROC_LOCK(p);
 		if (p->p_ptevents & PTRACE_SCE)
 			ptracestop((td), SIGTRAP, NULL);
@@ -104,7 +104,7 @@ syscallenter(struct thread *td)
 		error = (p->p_sysent->sv_fetch_syscall_args)(td);
 #ifdef KTRACE
 		if (KTRPOINT(td, KTR_SYSCALL))
-			ktrsyscall(sa->code, sa->narg, sa->args);
+			ktrsyscall(sa->code, sa->callp->sy_narg, sa->args);
 #endif
 		if (error != 0) {
 			td->td_errno = error;
