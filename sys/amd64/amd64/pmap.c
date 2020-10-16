@@ -149,6 +149,7 @@ __FBSDID("$FreeBSD$");
 #include <vm/vm_phys.h>
 #include <vm/vm_radix.h>
 #include <vm/vm_reserv.h>
+#include <vm/vm_dumpset.h>
 #include <vm/uma.h>
 
 #include <machine/intr_machdep.h>
@@ -10479,7 +10480,7 @@ pmap_pti_init(void)
 	    sizeof(struct gate_descriptor) * NIDT, false);
 	CPU_FOREACH(i) {
 		/* Doublefault stack IST 1 */
-		va = __pcpu[i].pc_common_tss.tss_ist1;
+		va = __pcpu[i].pc_common_tss.tss_ist1 + sizeof(struct nmi_pcpu);
 		pmap_pti_add_kva_locked(va - PAGE_SIZE, va, false);
 		/* NMI stack IST 2 */
 		va = __pcpu[i].pc_common_tss.tss_ist2 + sizeof(struct nmi_pcpu);

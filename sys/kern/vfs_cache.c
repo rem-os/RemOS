@@ -305,17 +305,18 @@ SYSCTL_BOOL(_vfs, OID_AUTO, cache_fast_revlookup, CTLFLAG_RW,
 
 static struct mtx __exclusive_cache_line	ncneg_shrink_lock;
 
+#define ncneghash	3
+#define	numneglists	(ncneghash + 1)
+
 struct neglist {
 	struct mtx		nl_lock;
 	TAILQ_HEAD(, namecache) nl_list;
+	TAILQ_HEAD(, namecache) nl_hotlist;
+	u_long			nl_hotnum;
 } __aligned(CACHE_LINE_SIZE);
 
-static struct neglist __read_mostly	*neglists;
-static struct neglist ncneg_hot;
-static u_long numhotneg;
+static struct neglist neglists[numneglists];
 
-#define ncneghash	3
-#define	numneglists	(ncneghash + 1)
 static inline struct neglist *
 NCP2NEGLIST(struct namecache *ncp)
 {
@@ -470,7 +471,6 @@ static long zap_and_exit_bucket_fail2; STATNODE_ULONG(zap_and_exit_bucket_fail2,
 static long cache_lock_vnodes_cel_3_failures;
 STATNODE_ULONG(cache_lock_vnodes_cel_3_failures,
     "Number of times 3-way vnode locking failed");
-STATNODE_ULONG(numhotneg, "Number of hot negative entries");
 STATNODE_COUNTER(numneg_evicted,
     "Number of negative entries evicted when adding a new entry");
 STATNODE_COUNTER(shrinking_skipped,
@@ -681,6 +681,21 @@ SYSCTL_PROC(_vfs_cache, OID_AUTO, nchstats, CTLTYPE_OPAQUE | CTLFLAG_RD |
     CTLFLAG_MPSAFE, 0, 0, sysctl_nchstats, "LU",
     "VFS cache effectiveness statistics");
 
+static int
+sysctl_hotnum(SYSCTL_HANDLER_ARGS)
+{
+	int i, out;
+
+	out = 0;
+	for (i = 0; i < numneglists; i++)
+		out += neglists[i].nl_hotnum;
+
+	return (SYSCTL_OUT(req, &out, sizeof(out)));
+}
+SYSCTL_PROC(_vfs_cache, OID_AUTO, hotnum, CTLTYPE_INT | CTLFLAG_RD |
+    CTLFLAG_MPSAFE, 0, 0, sysctl_hotnum, "I",
+    "Number of hot negative entries");
+
 #ifdef DIAGNOSTIC
 /*
  * Grab an atomic snapshot of the name cache hash chain lengths
@@ -784,128 +799,192 @@ SYSCTL_PROC(_debug_hashstat, OID_AUTO, nchash, CTLTYPE_INT|CTLFLAG_RD|
 static void
 cache_negative_init(struct namecache *ncp)
 {
-	struct negstate *negstate;
+	struct negstate *ns;
 
 	ncp->nc_flag |= NCF_NEGATIVE;
-	negstate = NCP2NEGSTATE(ncp);
-	negstate->neg_flag = 0;
+	ns = NCP2NEGSTATE(ncp);
+	ns->neg_flag = 0;
+}
+
+/*
+ * Move a negative entry to the hot list.
+ */
+static void
+cache_negative_promote(struct namecache *ncp)
+{
+	struct neglist *nl;
+	struct negstate *ns;
+
+	ns = NCP2NEGSTATE(ncp);
+	nl = NCP2NEGLIST(ncp);
+	mtx_assert(&nl->nl_lock, MA_OWNED);
+	if ((ns->neg_flag & NEG_HOT) == 0) {
+		TAILQ_REMOVE(&nl->nl_list, ncp, nc_dst);
+		TAILQ_INSERT_TAIL(&nl->nl_hotlist, ncp, nc_dst);
+		nl->nl_hotnum++;
+		ns->neg_flag |= NEG_HOT;
+	}
+}
+
+/*
+ * Move a negative entry to the hot list if it matches the lookup.
+ *
+ * We have to take locks, but they may be contended and in the worst
+ * case we may need to go off CPU. We don't want to spin within the
+ * smr section and we can't block with it. Exiting the section means
+ * the found entry could have been evicted. We are going to look it
+ * up again.
+ */
+static bool
+cache_negative_promote_cond(struct vnode *dvp, struct componentname *cnp,
+    struct namecache *oncp, uint32_t hash)
+{
+	struct namecache *ncp;
+	struct neglist *nl;
+	u_char nc_flag;
+
+	nl = NCP2NEGLIST(oncp);
+
+	mtx_lock(&nl->nl_lock);
+	/*
+	 * For hash iteration.
+	 */
+	vfs_smr_enter();
+
+	/*
+	 * Avoid all surprises by only succeeding if we got the same entry and
+	 * bailing completely otherwise.
+	 * XXX There are no provisions to keep the vnode around, meaning we may
+	 * end up promoting a negative entry for a *new* vnode and returning
+	 * ENOENT on its account. This is the error we want to return anyway
+	 * and promotion is harmless.
+	 *
+	 * In particular at this point there can be a new ncp which matches the
+	 * search but hashes to a different neglist.
+	 */
+	CK_SLIST_FOREACH(ncp, (NCHHASH(hash)), nc_hash) {
+		if (ncp == oncp)
+			break;
+	}
+
+	/*
+	 * No match to begin with.
+	 */
+	if (__predict_false(ncp == NULL)) {
+		goto out_abort;
+	}
+
+	/*
+	 * The newly found entry may be something different...
+	 */
+	if (!(ncp->nc_dvp == dvp && ncp->nc_nlen == cnp->cn_namelen &&
+	    !bcmp(ncp->nc_name, cnp->cn_nameptr, ncp->nc_nlen))) {
+		goto out_abort;
+	}
+
+	/*
+	 * ... and not even negative.
+	 */
+	nc_flag = atomic_load_char(&ncp->nc_flag);
+	if ((nc_flag & NCF_NEGATIVE) == 0) {
+		goto out_abort;
+	}
+
+	if (__predict_false(!cache_ncp_canuse(ncp))) {
+		goto out_abort;
+	}
+
+	cache_negative_promote(ncp);
+
+	SDT_PROBE2(vfs, namecache, lookup, hit__negative, dvp, ncp->nc_name);
+	counter_u64_add(numneghits, 1);
+	vfs_smr_exit();
+	mtx_unlock(&nl->nl_lock);
+	return (true);
+out_abort:
+	vfs_smr_exit();
+	mtx_unlock(&nl->nl_lock);
+	return (false);
 }
 
 static void
 cache_negative_hit(struct namecache *ncp)
 {
-	struct neglist *neglist;
-	struct negstate *negstate;
+	struct neglist *nl;
+	struct negstate *ns;
 
-	negstate = NCP2NEGSTATE(ncp);
-	if ((negstate->neg_flag & NEG_HOT) != 0)
+	ns = NCP2NEGSTATE(ncp);
+	if ((ns->neg_flag & NEG_HOT) != 0)
 		return;
-	neglist = NCP2NEGLIST(ncp);
-	mtx_lock(&ncneg_hot.nl_lock);
-	mtx_lock(&neglist->nl_lock);
-	if ((negstate->neg_flag & NEG_HOT) == 0) {
-		numhotneg++;
-		TAILQ_REMOVE(&neglist->nl_list, ncp, nc_dst);
-		TAILQ_INSERT_TAIL(&ncneg_hot.nl_list, ncp, nc_dst);
-		negstate->neg_flag |= NEG_HOT;
-	}
-	mtx_unlock(&neglist->nl_lock);
-	mtx_unlock(&ncneg_hot.nl_lock);
+	nl = NCP2NEGLIST(ncp);
+	mtx_lock(&nl->nl_lock);
+	cache_negative_promote(ncp);
+	mtx_unlock(&nl->nl_lock);
 }
 
 static void
 cache_negative_insert(struct namecache *ncp)
 {
-	struct neglist *neglist;
+	struct neglist *nl;
 
 	MPASS(ncp->nc_flag & NCF_NEGATIVE);
 	cache_assert_bucket_locked(ncp);
-	neglist = NCP2NEGLIST(ncp);
-	mtx_lock(&neglist->nl_lock);
-	TAILQ_INSERT_TAIL(&neglist->nl_list, ncp, nc_dst);
-	mtx_unlock(&neglist->nl_lock);
+	nl = NCP2NEGLIST(ncp);
+	mtx_lock(&nl->nl_lock);
+	TAILQ_INSERT_TAIL(&nl->nl_list, ncp, nc_dst);
+	mtx_unlock(&nl->nl_lock);
 	atomic_add_long(&numneg, 1);
 }
 
 static void
 cache_negative_remove(struct namecache *ncp)
 {
-	struct neglist *neglist;
-	struct negstate *negstate;
-	bool hot_locked = false;
-	bool list_locked = false;
+	struct neglist *nl;
+	struct negstate *ns;
 
 	cache_assert_bucket_locked(ncp);
-	neglist = NCP2NEGLIST(ncp);
-	negstate = NCP2NEGSTATE(ncp);
-	if ((negstate->neg_flag & NEG_HOT) != 0) {
-		hot_locked = true;
-		mtx_lock(&ncneg_hot.nl_lock);
-		if ((negstate->neg_flag & NEG_HOT) == 0) {
-			list_locked = true;
-			mtx_lock(&neglist->nl_lock);
-		}
+	nl = NCP2NEGLIST(ncp);
+	ns = NCP2NEGSTATE(ncp);
+	mtx_lock(&nl->nl_lock);
+	if ((ns->neg_flag & NEG_HOT) != 0) {
+		TAILQ_REMOVE(&nl->nl_hotlist, ncp, nc_dst);
+		nl->nl_hotnum--;
 	} else {
-		list_locked = true;
-		mtx_lock(&neglist->nl_lock);
-		/*
-		 * We may be racing against promotion in lockless lookup.
-		 */
-		if ((negstate->neg_flag & NEG_HOT) != 0) {
-			mtx_unlock(&neglist->nl_lock);
-			hot_locked = true;
-			mtx_lock(&ncneg_hot.nl_lock);
-			mtx_lock(&neglist->nl_lock);
-		}
+		TAILQ_REMOVE(&nl->nl_list, ncp, nc_dst);
 	}
-	if ((negstate->neg_flag & NEG_HOT) != 0) {
-		mtx_assert(&ncneg_hot.nl_lock, MA_OWNED);
-		TAILQ_REMOVE(&ncneg_hot.nl_list, ncp, nc_dst);
-		numhotneg--;
-	} else {
-		mtx_assert(&neglist->nl_lock, MA_OWNED);
-		TAILQ_REMOVE(&neglist->nl_list, ncp, nc_dst);
-	}
-	if (list_locked)
-		mtx_unlock(&neglist->nl_lock);
-	if (hot_locked)
-		mtx_unlock(&ncneg_hot.nl_lock);
+	mtx_unlock(&nl->nl_lock);
 	atomic_subtract_long(&numneg, 1);
 }
 
-static void
-cache_negative_shrink_select(struct namecache **ncpp,
-    struct neglist **neglistpp)
+static struct neglist *
+cache_negative_shrink_select(void)
 {
-	struct neglist *neglist;
-	struct namecache *ncp;
+	struct neglist *nl;
 	static u_int cycle;
 	u_int i;
 
-	*ncpp = ncp = NULL;
-
+	cycle++;
 	for (i = 0; i < numneglists; i++) {
-		neglist = &neglists[(cycle + i) % numneglists];
-		if (TAILQ_FIRST(&neglist->nl_list) == NULL)
+		nl = &neglists[(cycle + i) % numneglists];
+		if (TAILQ_FIRST(&nl->nl_list) == NULL &&
+		    TAILQ_FIRST(&nl->nl_hotlist) == NULL)
 			continue;
-		mtx_lock(&neglist->nl_lock);
-		ncp = TAILQ_FIRST(&neglist->nl_list);
-		if (ncp != NULL)
-			break;
-		mtx_unlock(&neglist->nl_lock);
+		mtx_lock(&nl->nl_lock);
+		if (TAILQ_FIRST(&nl->nl_list) != NULL ||
+		    TAILQ_FIRST(&nl->nl_hotlist) != NULL)
+			return (nl);
+		mtx_unlock(&nl->nl_lock);
 	}
 
-	*neglistpp = neglist;
-	*ncpp = ncp;
-	cycle++;
+	return (NULL);
 }
 
 static void
 cache_negative_zap_one(void)
 {
 	struct namecache *ncp, *ncp2;
-	struct neglist *neglist;
-	struct negstate *negstate;
+	struct neglist *nl;
+	struct negstate *ns;
 	struct mtx *dvlp;
 	struct mtx *blp;
 
@@ -915,31 +994,26 @@ cache_negative_zap_one(void)
 		return;
 	}
 
-	mtx_lock(&ncneg_hot.nl_lock);
-	ncp = TAILQ_FIRST(&ncneg_hot.nl_list);
-	if (ncp != NULL) {
-		neglist = NCP2NEGLIST(ncp);
-		negstate = NCP2NEGSTATE(ncp);
-		mtx_lock(&neglist->nl_lock);
-		MPASS((negstate->neg_flag & NEG_HOT) != 0);
-		TAILQ_REMOVE(&ncneg_hot.nl_list, ncp, nc_dst);
-		TAILQ_INSERT_TAIL(&neglist->nl_list, ncp, nc_dst);
-		negstate->neg_flag &= ~NEG_HOT;
-		numhotneg--;
-		mtx_unlock(&neglist->nl_lock);
-	}
-	mtx_unlock(&ncneg_hot.nl_lock);
-
-	cache_negative_shrink_select(&ncp, &neglist);
-
+	nl = cache_negative_shrink_select();
 	mtx_unlock(&ncneg_shrink_lock);
-	if (ncp == NULL)
+	if (nl == NULL) {
 		return;
+	}
 
-	MPASS(ncp->nc_flag & NCF_NEGATIVE);
+	ncp = TAILQ_FIRST(&nl->nl_hotlist);
+	if (ncp != NULL) {
+		ns = NCP2NEGSTATE(ncp);
+		TAILQ_REMOVE(&nl->nl_hotlist, ncp, nc_dst);
+		TAILQ_INSERT_TAIL(&nl->nl_list, ncp, nc_dst);
+		nl->nl_hotnum--;
+		ns->neg_flag &= ~NEG_HOT;
+	}
+	ncp = TAILQ_FIRST(&nl->nl_list);
+	MPASS(ncp != NULL);
+	ns = NCP2NEGSTATE(ncp);
 	dvlp = VP2VNODELOCK(ncp->nc_dvp);
 	blp = NCP2BUCKETLOCK(ncp);
-	mtx_unlock(&neglist->nl_lock);
+	mtx_unlock(&nl->nl_lock);
 	mtx_lock(dvlp);
 	mtx_lock(blp);
 	/*
@@ -948,7 +1022,7 @@ cache_negative_zap_one(void)
 	 * and used by a different vnode.
 	 */
 	vfs_smr_enter();
-	ncp2 = TAILQ_FIRST(&neglist->nl_list);
+	ncp2 = TAILQ_FIRST(&nl->nl_list);
 	if (ncp != ncp2 || dvlp != VP2VNODELOCK(ncp2->nc_dvp) ||
 	    blp != NCP2BUCKETLOCK(ncp2)) {
 		vfs_smr_exit();
@@ -1461,11 +1535,11 @@ cache_lookup(struct vnode *dvp, struct vnode **vpp, struct componentname *cnp,
     struct timespec *tsp, int *ticksp)
 {
 	struct namecache *ncp;
-	struct negstate *negstate;
+	struct negstate *ns;
 	uint32_t hash;
 	enum vgetstate vs;
 	int error;
-	bool whiteout;
+	bool whiteout, neg_hot;
 	u_short nc_flag;
 
 	MPASS((tsp == NULL && ticksp == NULL) || (tsp != NULL && ticksp != NULL));
@@ -1542,21 +1616,23 @@ negative_success:
 		}
 	}
 
-	SDT_PROBE2(vfs, namecache, lookup, hit__negative, dvp, ncp->nc_name);
 	cache_out_ts(ncp, tsp, ticksp);
-	counter_u64_add(numneghits, 1);
 	whiteout = (ncp->nc_flag & NCF_WHITE);
-	/*
-	 * TODO: We need to take locks to promote an entry. Code doing it
-	 * in SMR lookup can be modified to be shared.
-	 */
-	negstate = NCP2NEGSTATE(ncp);
-	if ((negstate->neg_flag & NEG_HOT) == 0 ||
-	    !cache_ncp_canuse(ncp)) {
+	ns = NCP2NEGSTATE(ncp);
+	neg_hot = ((ns->neg_flag & NEG_HOT) != 0);
+	if (__predict_false(!cache_ncp_canuse(ncp))) {
 		vfs_smr_exit();
 		goto out_fallback;
 	}
-	vfs_smr_exit();
+	if (!neg_hot) {
+		vfs_smr_exit();
+		if (!cache_negative_promote_cond(dvp, cnp, ncp, hash))
+			goto out_fallback;
+	} else {
+		SDT_PROBE2(vfs, namecache, lookup, hit__negative, dvp, ncp->nc_name);
+		counter_u64_add(numneghits, 1);
+		vfs_smr_exit();
+	}
 	if (whiteout)
 		cnp->cn_flags |= ISWHITEOUT;
 	return (ENOENT);
@@ -2091,14 +2167,11 @@ nchinit(void *dummy __unused)
 	for (i = 0; i < numvnodelocks; i++)
 		mtx_init(&vnodelocks[i], "ncvn", NULL, MTX_DUPOK | MTX_RECURSE);
 
-	neglists = malloc(sizeof(*neglists) * numneglists, M_VFSCACHE,
-	    M_WAITOK | M_ZERO);
 	for (i = 0; i < numneglists; i++) {
 		mtx_init(&neglists[i].nl_lock, "ncnegl", NULL, MTX_DEF);
 		TAILQ_INIT(&neglists[i].nl_list);
+		TAILQ_INIT(&neglists[i].nl_hotlist);
 	}
-	mtx_init(&ncneg_hot.nl_lock, "ncneglh", NULL, MTX_DEF);
-	TAILQ_INIT(&ncneg_hot.nl_list);
 
 	mtx_init(&ncneg_shrink_lock, "ncnegs", NULL, MTX_DEF);
 }
@@ -3189,6 +3262,7 @@ struct cache_fpl {
 	int line;
 	enum cache_fpl_status status:8;
 	bool in_smr;
+	bool fsearch;
 };
 
 static void
@@ -3346,10 +3420,6 @@ cache_can_fplookup(struct cache_fpl *fpl)
 		cache_fpl_aborted(fpl);
 		return (false);
 	}
-	if (ndp->ni_dirfd != AT_FDCWD) {
-		cache_fpl_aborted(fpl);
-		return (false);
-	}
 	if (IN_CAPABILITY_MODE(td)) {
 		cache_fpl_aborted(fpl);
 		return (false);
@@ -3365,6 +3435,23 @@ cache_can_fplookup(struct cache_fpl *fpl)
 	return (true);
 }
 
+static int
+cache_fplookup_dirfd(struct cache_fpl *fpl, struct vnode **vpp)
+{
+	struct nameidata *ndp;
+	int error;
+	bool fsearch;
+
+	ndp = fpl->ndp;
+	error = fgetvp_lookup_smr(ndp->ni_dirfd, ndp, vpp, &fsearch);
+	if (__predict_false(error != 0)) {
+		cache_fpl_smr_exit(fpl);
+		return (cache_fpl_aborted(fpl));
+	}
+	fpl->fsearch = fsearch;
+	return (0);
+}
+
 static bool
 cache_fplookup_vnode_supported(struct vnode *vp)
 {
@@ -3372,101 +3459,21 @@ cache_fplookup_vnode_supported(struct vnode *vp)
 	return (vp->v_type != VLNK);
 }
 
-/*
- * Move a negative entry to the hot list.
- *
- * We have to take locks, but they may be contended and in the worst
- * case we may need to go off CPU. We don't want to spin within the
- * smr section and we can't block with it. Instead we are going to
- * look up the entry again.
- */
 static int __noinline
 cache_fplookup_negative_promote(struct cache_fpl *fpl, struct namecache *oncp,
     uint32_t hash)
 {
 	struct componentname *cnp;
-	struct namecache *ncp;
-	struct neglist *neglist;
-	struct negstate *negstate;
 	struct vnode *dvp;
-	u_char nc_flag;
 
 	cnp = fpl->cnp;
 	dvp = fpl->dvp;
 
-	if (!vhold_smr(dvp))
+	cache_fpl_smr_exit(fpl);
+	if (cache_negative_promote_cond(dvp, cnp, oncp, hash))
+		return (cache_fpl_handled(fpl, ENOENT));
+	else
 		return (cache_fpl_aborted(fpl));
-
-	neglist = NCP2NEGLIST(oncp);
-	cache_fpl_smr_exit(fpl);
-
-	mtx_lock(&ncneg_hot.nl_lock);
-	mtx_lock(&neglist->nl_lock);
-	/*
-	 * For hash iteration.
-	 */
-	cache_fpl_smr_enter(fpl);
-
-	/*
-	 * Avoid all surprises by only succeeding if we got the same entry and
-	 * bailing completely otherwise.
-	 *
-	 * In particular at this point there can be a new ncp which matches the
-	 * search but hashes to a different neglist.
-	 */
-	CK_SLIST_FOREACH(ncp, (NCHHASH(hash)), nc_hash) {
-		if (ncp == oncp)
-			break;
-	}
-
-	/*
-	 * No match to begin with.
-	 */
-	if (__predict_false(ncp == NULL)) {
-		goto out_abort;
-	}
-
-	/*
-	 * The newly found entry may be something different...
-	 */
-	if (!(ncp->nc_dvp == dvp && ncp->nc_nlen == cnp->cn_namelen &&
-	    !bcmp(ncp->nc_name, cnp->cn_nameptr, ncp->nc_nlen))) {
-		goto out_abort;
-	}
-
-	/*
-	 * ... and not even negative.
-	 */
-	nc_flag = atomic_load_char(&ncp->nc_flag);
-	if ((nc_flag & NCF_NEGATIVE) == 0) {
-		goto out_abort;
-	}
-
-	if (__predict_false(!cache_ncp_canuse(ncp))) {
-		goto out_abort;
-	}
-
-	negstate = NCP2NEGSTATE(ncp);
-	if ((negstate->neg_flag & NEG_HOT) == 0) {
-		numhotneg++;
-		TAILQ_REMOVE(&neglist->nl_list, ncp, nc_dst);
-		TAILQ_INSERT_TAIL(&ncneg_hot.nl_list, ncp, nc_dst);
-		negstate->neg_flag |= NEG_HOT;
-	}
-
-	SDT_PROBE2(vfs, namecache, lookup, hit__negative, dvp, ncp->nc_name);
-	counter_u64_add(numneghits, 1);
-	cache_fpl_smr_exit(fpl);
-	mtx_unlock(&neglist->nl_lock);
-	mtx_unlock(&ncneg_hot.nl_lock);
-	vdrop(dvp);
-	return (cache_fpl_handled(fpl, ENOENT));
-out_abort:
-	cache_fpl_smr_exit(fpl);
-	mtx_unlock(&neglist->nl_lock);
-	mtx_unlock(&ncneg_hot.nl_lock);
-	vdrop(dvp);
-	return (cache_fpl_aborted(fpl));
 }
 
 /*
@@ -3484,25 +3491,24 @@ cache_fplookup_partial_setup(struct cache_fpl *fpl)
 
 	ndp = fpl->ndp;
 	cnp = fpl->cnp;
+	pwd = fpl->pwd;
 	dvp = fpl->dvp;
 	dvp_seqc = fpl->dvp_seqc;
 
-	dvs = vget_prep_smr(dvp);
-	if (__predict_false(dvs == VGET_NONE)) {
+	if (!pwd_hold_smr(pwd)) {
 		cache_fpl_smr_exit(fpl);
 		return (cache_fpl_aborted(fpl));
 	}
 
+	dvs = vget_prep_smr(dvp);
 	cache_fpl_smr_exit(fpl);
-
-	vget_finish_ref(dvp, dvs);
-	if (!vn_seqc_consistent(dvp, dvp_seqc)) {
-		vrele(dvp);
+	if (__predict_false(dvs == VGET_NONE)) {
+		pwd_drop(pwd);
 		return (cache_fpl_aborted(fpl));
 	}
 
-	pwd = pwd_hold(curthread);
-	if (fpl->pwd != pwd) {
+	vget_finish_ref(dvp, dvs);
+	if (!vn_seqc_consistent(dvp, dvp_seqc)) {
 		vrele(dvp);
 		pwd_drop(pwd);
 		return (cache_fpl_aborted(fpl));
@@ -3766,7 +3772,7 @@ cache_fplookup_next(struct cache_fpl *fpl)
 {
 	struct componentname *cnp;
 	struct namecache *ncp;
-	struct negstate *negstate;
+	struct negstate *ns;
 	struct vnode *dvp, *tvp;
 	u_char nc_flag;
 	uint32_t hash;
@@ -3805,8 +3811,8 @@ cache_fplookup_next(struct cache_fpl *fpl)
 		if (__predict_false(fpl->cnp->cn_nameiop != LOOKUP)) {
 			return (cache_fpl_partial(fpl));
 		}
-		negstate = NCP2NEGSTATE(ncp);
-		neg_hot = ((negstate->neg_flag & NEG_HOT) != 0);
+		ns = NCP2NEGSTATE(ncp);
+		neg_hot = ((ns->neg_flag & NEG_HOT) != 0);
 		if (__predict_false(!cache_ncp_canuse(ncp))) {
 			return (cache_fpl_partial(fpl));
 		}
@@ -3948,10 +3954,10 @@ cache_fplookup_need_climb_mount(struct cache_fpl *fpl)
 /*
  * Parse the path.
  *
- * The code is mostly copy-pasted from regular lookup, see lookup().
- * The structure is maintained along with comments for easier maintenance.
- * Deduplicating the code will become feasible after fast path lookup
- * becomes more feature-complete.
+ * The code was originally copy-pasted from regular lookup and despite
+ * clean ups leaves performance on the table. Any modifications here
+ * must take into account that in case off fallback the resulting
+ * nameidata state has to be compatible with the original.
  */
 static int
 cache_fplookup_parse(struct cache_fpl *fpl)
@@ -4041,23 +4047,74 @@ cache_fplookup_parse_advance(struct cache_fpl *fpl)
 	}
 }
 
+/*
+ * See the API contract for VOP_FPLOOKUP_VEXEC.
+ */
 static int __noinline
 cache_fplookup_failed_vexec(struct cache_fpl *fpl, int error)
 {
+	struct componentname *cnp;
+	struct vnode *dvp;
+	seqc_t dvp_seqc;
+
+	cnp = fpl->cnp;
+	dvp = fpl->dvp;
+	dvp_seqc = fpl->dvp_seqc;
+
+	/*
+	 * Hack: they may be looking up foo/bar, where foo is a
+	 * regular file. In such a case we need to turn ENOTDIR,
+	 * but we may happen to get here with a different error.
+	 */
+	if (dvp->v_type != VDIR) {
+		/*
+		 * The check here is predominantly to catch
+		 * EOPNOTSUPP from dead_vnodeops. If the vnode
+		 * gets doomed past this point it is going to
+		 * fail seqc verification.
+		 */
+		if (VN_IS_DOOMED(dvp)) {
+			return (cache_fpl_aborted(fpl));
+		}
+		error = ENOTDIR;
+	}
+
+	/*
+	 * Hack: handle O_SEARCH.
+	 *
+	 * Open Group Base Specifications Issue 7, 2018 edition states:
+	 * If the access mode of the open file description associated with the
+	 * file descriptor is not O_SEARCH, the function shall check whether
+	 * directory searches are permitted using the current permissions of
+	 * the directory underlying the file descriptor. If the access mode is
+	 * O_SEARCH, the function shall not perform the check.
+	 *
+	 * Regular lookup tests for the NOEXECCHECK flag for every path
+	 * component to decide whether to do the permission check. However,
+	 * since most lookups never have the flag (and when they do it is only
+	 * present for the first path component), lockless lookup only acts on
+	 * it if there is a permission problem. Here the flag is represented
+	 * with a boolean so that we don't have to clear it on the way out.
+	 *
+	 * For simplicity this always aborts.
+	 * TODO: check if this is the first lookup and ignore the permission
+	 * problem. Note the flag has to survive fallback (if it happens to be
+	 * performed).
+	 */
+	if (fpl->fsearch) {
+		return (cache_fpl_aborted(fpl));
+	}
 
 	switch (error) {
 	case EAGAIN:
-		/*
-		 * Can happen when racing against vgone.
-		 * */
-	case EOPNOTSUPP:
-		cache_fpl_partial(fpl);
+		if (!vn_seqc_consistent(dvp, dvp_seqc)) {
+			error = cache_fpl_aborted(fpl);
+		} else {
+			cache_fpl_partial(fpl);
+		}
 		break;
 	default:
-		/*
-		 * See the API contract for VOP_FPLOOKUP_VEXEC.
-		 */
-		if (!vn_seqc_consistent(fpl->dvp, fpl->dvp_seqc)) {
+		if (!vn_seqc_consistent(dvp, dvp_seqc)) {
 			error = cache_fpl_aborted(fpl);
 		} else {
 			cache_fpl_smr_exit(fpl);
@@ -4286,6 +4343,7 @@ cache_fplookup(struct nameidata *ndp, enum cache_fpl_status *status,
 	cache_fpl_checkpoint(&fpl, &orig);
 
 	cache_fpl_smr_enter_initial(&fpl);
+	fpl.fsearch = false;
 	pwd = pwd_get_smr();
 	fpl.pwd = pwd;
 	ndp->ni_rootdir = pwd->pwd_rdir;
@@ -4296,13 +4354,20 @@ cache_fplookup(struct nameidata *ndp, enum cache_fpl_status *status,
 	if (cnp->cn_pnbuf[0] == '/') {
 		cache_fpl_handle_root(ndp, &dvp);
 	} else {
-		MPASS(ndp->ni_dirfd == AT_FDCWD);
-		dvp = pwd->pwd_cdir;
+		if (ndp->ni_dirfd == AT_FDCWD) {
+			dvp = pwd->pwd_cdir;
+		} else {
+			error = cache_fplookup_dirfd(&fpl, &dvp);
+			if (__predict_false(error != 0)) {
+				goto out;
+			}
+		}
 	}
 
 	SDT_PROBE4(vfs, namei, lookup, entry, dvp, cnp->cn_pnbuf, cnp->cn_flags, true);
 
 	error = cache_fplookup_impl(dvp, &fpl);
+out:
 	cache_fpl_smr_assert_not_entered(&fpl);
 	SDT_PROBE3(vfs, fplookup, lookup, done, ndp, fpl.line, fpl.status);
 

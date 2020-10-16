@@ -4165,10 +4165,7 @@ zfs_rename_(vnode_t *sdvp, vnode_t **svpp, struct componentname *scnp,
 			}
 		}
 		if (error == 0) {
-			cache_purge(*svpp);
-			if (*tvpp != NULL)
-				cache_purge(*tvpp);
-			cache_purge_negative(tdvp);
+			cache_rename(sdvp, *svpp, tdvp, *tvpp, scnp, tcnp);
 		}
 	}
 
@@ -6622,6 +6619,7 @@ VFS_VOP_VECTOR_REGISTER(zfs_fifoops);
  */
 struct vop_vector zfs_shareops = {
 	.vop_default =		&default_vnodeops,
+	.vop_fplookup_vexec =	VOP_EAGAIN,
 	.vop_access =		zfs_freebsd_access,
 	.vop_inactive =		zfs_freebsd_inactive,
 	.vop_reclaim =		zfs_freebsd_reclaim,

@@ -31,13 +31,10 @@
  * $FreeBSD$
  */
 
-#ifndef _SYS_IOMMU_H_
-#define _SYS_IOMMU_H_
+#ifndef _DEV_IOMMU_IOMMU_H_
+#define _DEV_IOMMU_IOMMU_H_
 
-/* Host or physical memory address, after translation. */
-typedef uint64_t iommu_haddr_t;
-/* Guest or bus address, before translation. */
-typedef uint64_t iommu_gaddr_t;
+#include <dev/iommu/iommu_types.h>
 
 struct bus_dma_tag_common;
 struct iommu_map_entry;
@@ -67,18 +64,6 @@ struct iommu_map_entry {
 	struct iommu_domain *domain;
 	struct iommu_qi_genseq gseq;
 };
-
-#define	IOMMU_MAP_ENTRY_PLACE	0x0001	/* Fake entry */
-#define	IOMMU_MAP_ENTRY_RMRR	0x0002	/* Permanent, not linked by
-					   dmamap_link */
-#define	IOMMU_MAP_ENTRY_MAP	0x0004	/* Busdma created, linked by
-					   dmamap_link */
-#define	IOMMU_MAP_ENTRY_UNMAPPED	0x0010	/* No backing pages */
-#define	IOMMU_MAP_ENTRY_QI_NF	0x0020	/* qi task, do not free entry */
-#define	IOMMU_MAP_ENTRY_READ	0x1000	/* Read permitted */
-#define	IOMMU_MAP_ENTRY_WRITE	0x2000	/* Write permitted */
-#define	IOMMU_MAP_ENTRY_SNOOP	0x4000	/* Snoop */
-#define	IOMMU_MAP_ENTRY_TM	0x8000	/* Transient */
 
 struct iommu_unit {
 	struct mtx lock;
@@ -152,17 +137,6 @@ struct iommu_ctx {
 #define	IOMMU_DOMAIN_RMRR		0x0020	/* Domain contains RMRR entry,
 						   cannot be turned off */
 
-/* Map flags */
-#define	IOMMU_MF_CANWAIT	0x0001
-#define	IOMMU_MF_CANSPLIT	0x0002
-#define	IOMMU_MF_RMRR		0x0004
-
-#define	IOMMU_PGF_WAITOK	0x0001
-#define	IOMMU_PGF_ZERO		0x0002
-#define	IOMMU_PGF_ALLOC		0x0004
-#define	IOMMU_PGF_NOALLOC	0x0008
-#define	IOMMU_PGF_OBJL		0x0010
-
 #define	IOMMU_LOCK(unit)		mtx_lock(&(unit)->lock)
 #define	IOMMU_UNLOCK(unit)		mtx_unlock(&(unit)->lock)
 #define	IOMMU_ASSERT_LOCKED(unit)	mtx_assert(&(unit)->lock, MA_OWNED)
@@ -233,7 +207,9 @@ int bus_dma_iommu_load_ident(bus_dma_tag_t dmat, bus_dmamap_t map,
     vm_paddr_t start, vm_size_t length, int flags);
 
 bus_dma_tag_t iommu_get_dma_tag(device_t dev, device_t child);
+struct iommu_ctx *iommu_get_dev_ctx(device_t dev);
+struct iommu_domain *iommu_get_ctx_domain(struct iommu_ctx *ctx);
 
 SYSCTL_DECL(_hw_iommu);
 
-#endif /* !_SYS_IOMMU_H_ */
+#endif /* !_DEV_IOMMU_IOMMU_H_ */

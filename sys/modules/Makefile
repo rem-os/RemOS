@@ -41,7 +41,6 @@ SUBDIR=	\
 	amr \
 	${_an} \
 	${_aout} \
-	${_apm} \
 	${_arcmsr} \
 	${_allwinner} \
 	${_armv8crypto} \
@@ -59,6 +58,8 @@ SUBDIR=	\
 	ath_rate \
 	ath_pci \
 	${_autofs} \
+	axgbe \
+	backlight \
 	${_bce} \
 	${_bcm283x_clkman} \
 	${_bcm283x_pwm} \
@@ -223,7 +224,7 @@ SUBDIR=	\
 	mac_seeotheruids \
 	mac_stub \
 	mac_test \
-	malo \
+	${_malo} \
 	md \
 	mdio \
 	mem \
@@ -743,7 +744,6 @@ _vmm=		vmm
 # XXX some of these can move now, but are untested on other architectures.
 _3dfx=		3dfx
 _3dfx_linux=	3dfx_linux
-_apm=		apm
 .if ${MK_SOURCELESS_HOST} != "no"
 _ce=		ce
 .endif
@@ -802,6 +802,12 @@ _cloudabi64=	cloudabi64
 .if ${MACHINE_ARCH:Marmv[67]*} != "" || ${MACHINE_CPUARCH} == "aarch64"
 _bcm283x_clkman=  bcm283x_clkman
 _bcm283x_pwm=  bcm283x_pwm
+.endif
+
+.if !(${COMPILER_TYPE} == "clang" && ${COMPILER_VERSION} < 110000)
+# LLVM 10 crashes when building if_malo_pci.c, fixed in LLVM11:
+# https://bugs.llvm.org/show_bug.cgi?id=44351
+_malo=	malo
 .endif
 
 SUBDIR+=${MODULES_EXTRA}
