@@ -1312,8 +1312,8 @@ dev/ath/ath_rate/sample/sample.c	optional ath_rate_sample \
 dev/ath/ath_dfs/null/dfs_null.c	optional ath \
 	compile-with "${NORMAL_C} -I$S/dev/ath"
 #
-dev/backlight/backlight_if.m		optional backlight
-dev/backlight/backlight.c		optional backlight
+dev/backlight/backlight_if.m		optional backlight | compat_linuxkpi
+dev/backlight/backlight.c		optional backlight | compat_linuxkpi
 dev/bce/if_bce.c			optional bce
 dev/bfe/if_bfe.c			optional bfe
 dev/bge/if_bge.c			optional bge
@@ -4180,7 +4180,7 @@ net/rss_config.c		optional inet rss | inet6 rss
 net/rtsock.c			standard
 net/slcompress.c		optional netgraph_vjc | sppp | \
 					 netgraph_sppp
-net/toeplitz.c			optional inet rss | inet6 rss
+net/toeplitz.c			optional inet rss | inet6 rss | route_mpath
 net/vnet.c			optional vimage
 net80211/ieee80211.c		optional wlan
 net80211/ieee80211_acl.c	optional wlan wlan_acl
@@ -4571,6 +4571,7 @@ compat/lindebugfs/lindebugfs.c			optional lindebugfs \
 	compile-with "${LINUXKPI_C}"
 
 # OpenFabrics Enterprise Distribution (Infiniband)
+net/if_infiniband.c					optional ofed | lagg
 ofed/drivers/infiniband/core/ib_addr.c			optional ofed	\
 	compile-with "${OFED_C}"
 ofed/drivers/infiniband/core/ib_agent.c			optional ofed	\

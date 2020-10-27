@@ -2342,6 +2342,8 @@ _other_bootstrap_tools+=tools/build/cross-build/fake_chflags
 .endif
 # mkfifo is used by sys/conf/newvers.sh
 _basic_bootstrap_tools+=usr.bin/mkfifo
+# jot is needed for the mkimg tests
+_basic_bootstrap_tools+=usr.bin/jot
 
 .if ${MK_BOOT} != "no"
 # md5 is used by boot/beri (and possibly others)
@@ -2827,6 +2829,7 @@ _prebuild_libs=	${_kerberos5_lib_libasn1} \
 		lib/libelf lib/libexpat \
 		lib/libfigpar \
 		${_lib_libgssapi} \
+		lib/libjail \
 		lib/libkiconv lib/libkvm lib/liblzma lib/libmd lib/libnv \
 		lib/libzstd \
 		${_lib_casper} \
