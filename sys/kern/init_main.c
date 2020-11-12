@@ -496,9 +496,8 @@ proc0_init(void *dummy __unused)
 	p->p_klist = knlist_alloc(&p->p_mtx);
 	STAILQ_INIT(&p->p_ktr);
 	p->p_nice = NZERO;
-	/* pid_max cannot be greater than PID_MAX */
-	td->td_tid = PID_MAX + 1;
-	LIST_INSERT_HEAD(TIDHASH(td->td_tid), td, td_hash);
+	td->td_tid = THREAD0_TID;
+	tidhash_add(td);
 	td->td_state = TDS_RUNNING;
 	td->td_pri_class = PRI_TIMESHARE;
 	td->td_user_pri = PUSER;
@@ -591,7 +590,7 @@ proc0_init(void *dummy __unused)
 
 	/* Allocate a prototype map so we have something to fork. */
 	p->p_vmspace = &vmspace0;
-	vmspace0.vm_refcnt = 1;
+	refcount_init(&vmspace0.vm_refcnt, 1);
 	pmap_pinit0(vmspace_pmap(&vmspace0));
 
 	/*

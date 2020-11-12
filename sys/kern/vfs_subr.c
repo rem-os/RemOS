@@ -112,8 +112,7 @@ static void	vgonel(struct vnode *);
 static bool	vhold_recycle_free(struct vnode *);
 static void	vfs_knllock(void *arg);
 static void	vfs_knlunlock(void *arg);
-static void	vfs_knl_assert_locked(void *arg);
-static void	vfs_knl_assert_unlocked(void *arg);
+static void	vfs_knl_assert_lock(void *arg, int what);
 static void	destroy_vpollinfo(struct vpollinfo *vi);
 static int	v_inval_buf_range_locked(struct vnode *vp, struct bufobj *bo,
 		    daddr_t startlbn, daddr_t endlbn);
@@ -228,7 +227,7 @@ static smr_t buf_trie_smr;
 
 /* Zone for allocation of new vnodes - used exclusively by getnewvnode() */
 static uma_zone_t vnode_zone;
-static uma_zone_t vnodepoll_zone;
+MALLOC_DEFINE(M_VNODEPOLL, "VN POLL", "vnode poll");
 
 __read_frequently smr_t vfs_smr;
 
@@ -660,8 +659,6 @@ vntblinit(void *dummy __unused)
 	vnode_zone = uma_zcreate("VNODE", sizeof (struct vnode), NULL, NULL,
 	    vnode_init, vnode_fini, UMA_ALIGN_PTR, 0);
 	uma_zone_set_smr(vnode_zone, vfs_smr);
-	vnodepoll_zone = uma_zcreate("VNODEPOLL", sizeof (struct vpollinfo),
-	    NULL, NULL, NULL, NULL, UMA_ALIGN_PTR, 0);
 	/*
 	 * Preallocate enough nodes to support one-per buf so that
 	 * we can not fail an insert.  reassignbuf() callers can not
@@ -737,17 +734,18 @@ SYSINIT(vfs, SI_SUB_VFS, SI_ORDER_FIRST, vntblinit, NULL);
 int
 vfs_busy(struct mount *mp, int flags)
 {
+	struct mount_pcpu *mpcpu;
 
 	MPASS((flags & ~MBF_MASK) == 0);
 	CTR3(KTR_VFS, "%s: mp %p with flags %d", __func__, mp, flags);
 
-	if (vfs_op_thread_enter(mp)) {
+	if (vfs_op_thread_enter(mp, mpcpu)) {
 		MPASS((mp->mnt_kern_flag & MNTK_DRAINING) == 0);
 		MPASS((mp->mnt_kern_flag & MNTK_UNMOUNT) == 0);
 		MPASS((mp->mnt_kern_flag & MNTK_REFEXPIRE) == 0);
-		vfs_mp_count_add_pcpu(mp, ref, 1);
-		vfs_mp_count_add_pcpu(mp, lockref, 1);
-		vfs_op_thread_exit(mp);
+		vfs_mp_count_add_pcpu(mpcpu, ref, 1);
+		vfs_mp_count_add_pcpu(mpcpu, lockref, 1);
+		vfs_op_thread_exit(mp, mpcpu);
 		if (flags & MBF_MNTLSTLOCK)
 			mtx_unlock(&mountlist_mtx);
 		return (0);
@@ -797,15 +795,16 @@ vfs_busy(struct mount *mp, int flags)
 void
 vfs_unbusy(struct mount *mp)
 {
+	struct mount_pcpu *mpcpu;
 	int c;
 
 	CTR2(KTR_VFS, "%s: mp %p", __func__, mp);
 
-	if (vfs_op_thread_enter(mp)) {
+	if (vfs_op_thread_enter(mp, mpcpu)) {
 		MPASS((mp->mnt_kern_flag & MNTK_DRAINING) == 0);
-		vfs_mp_count_sub_pcpu(mp, lockref, 1);
-		vfs_mp_count_sub_pcpu(mp, ref, 1);
-		vfs_op_thread_exit(mp);
+		vfs_mp_count_sub_pcpu(mpcpu, lockref, 1);
+		vfs_mp_count_sub_pcpu(mpcpu, ref, 1);
+		vfs_op_thread_exit(mp, mpcpu);
 		return;
 	}
 
@@ -4788,7 +4787,7 @@ destroy_vpollinfo_free(struct vpollinfo *vi)
 
 	knlist_destroy(&vi->vpi_selinfo.si_note);
 	mtx_destroy(&vi->vpi_lock);
-	uma_zfree(vnodepoll_zone, vi);
+	free(vi, M_VNODEPOLL);
 }
 
 static void
@@ -4810,10 +4809,10 @@ v_addpollinfo(struct vnode *vp)
 
 	if (vp->v_pollinfo != NULL)
 		return;
-	vi = uma_zalloc(vnodepoll_zone, M_WAITOK | M_ZERO);
+	vi = malloc(sizeof(*vi), M_VNODEPOLL, M_WAITOK | M_ZERO);
 	mtx_init(&vi->vpi_lock, "vnode pollinfo", NULL, MTX_DEF);
 	knlist_init(&vi->vpi_selinfo.si_note, vp, vfs_knllock,
-	    vfs_knlunlock, vfs_knl_assert_locked, vfs_knl_assert_unlocked);
+	    vfs_knlunlock, vfs_knl_assert_lock);
 	VI_LOCK(vp);
 	if (vp->v_pollinfo != NULL) {
 		VI_UNLOCK(vp);
@@ -6062,22 +6061,15 @@ vfs_knlunlock(void *arg)
 }
 
 static void
-vfs_knl_assert_locked(void *arg)
+vfs_knl_assert_lock(void *arg, int what)
 {
 #ifdef DEBUG_VFS_LOCKS
 	struct vnode *vp = arg;
 
-	ASSERT_VOP_LOCKED(vp, "vfs_knl_assert_locked");
-#endif
-}
-
-static void
-vfs_knl_assert_unlocked(void *arg)
-{
-#ifdef DEBUG_VFS_LOCKS
-	struct vnode *vp = arg;
-
-	ASSERT_VOP_UNLOCKED(vp, "vfs_knl_assert_unlocked");
+	if (what == LA_LOCKED)
+		ASSERT_VOP_LOCKED(vp, "vfs_knl_assert_locked");
+	else
+		ASSERT_VOP_UNLOCKED(vp, "vfs_knl_assert_unlocked");
 #endif
 }
 
@@ -6409,18 +6401,19 @@ restart:
 int
 vfs_cache_root(struct mount *mp, int flags, struct vnode **vpp)
 {
+	struct mount_pcpu *mpcpu;
 	struct vnode *vp;
 	int error;
 
-	if (!vfs_op_thread_enter(mp))
+	if (!vfs_op_thread_enter(mp, mpcpu))
 		return (vfs_cache_root_fallback(mp, flags, vpp));
 	vp = atomic_load_ptr(&mp->mnt_rootvnode);
 	if (vp == NULL || VN_IS_DOOMED(vp)) {
-		vfs_op_thread_exit(mp);
+		vfs_op_thread_exit(mp, mpcpu);
 		return (vfs_cache_root_fallback(mp, flags, vpp));
 	}
 	vrefact(vp);
-	vfs_op_thread_exit(mp);
+	vfs_op_thread_exit(mp, mpcpu);
 	error = vn_lock(vp, flags);
 	if (error != 0) {
 		vrele(vp);

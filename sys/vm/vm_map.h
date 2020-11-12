@@ -227,6 +227,7 @@ struct vm_map {
 #define	MAP_IS_SUB_MAP		0x04	/* has parent */
 #define	MAP_ASLR		0x08	/* enabled ASLR */
 #define	MAP_ASLR_IGNSTART	0x10
+#define	MAP_REPLENISH		0x20
 
 #ifdef	_KERNEL
 #if defined(KLD_MODULE) && !defined(KLD_TIED)
@@ -291,7 +292,7 @@ struct vmspace {
 	caddr_t vm_taddr;	/* (c) user virtual address of text */
 	caddr_t vm_daddr;	/* (c) user virtual address of data */
 	caddr_t vm_maxsaddr;	/* user VA at max stack growth */
-	volatile int vm_refcnt;	/* number of references */
+	u_int vm_refcnt;	/* number of references */
 	/*
 	 * Keep the PMAP last, so that CPU-specific variations of that
 	 * structure on a single architecture don't result in offset
