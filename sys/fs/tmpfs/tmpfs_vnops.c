@@ -311,6 +311,7 @@ tmpfs_open(struct vop_open_args *v)
 	}
 
 	fp = v->a_fp;
+	MPASS(fp == NULL || fp->f_data == NULL);
 	if (error == 0 && fp != NULL && vp->v_type == VREG) {
 		tmpfs_ref_node(node);
 		finit_vnode(fp, mode, node, &tmpfs_fnops);
@@ -600,7 +601,7 @@ tmpfs_read_pgcache(struct vop_read_pgcache_args *v)
 	int error;
 
 	vp = v->a_vp;
-	MPASS((vp->v_irflag & VIRF_PGREAD) != 0);
+	VNPASS((vn_irflag_read(vp) & VIRF_PGREAD) != 0, vp);
 
 	if (v->a_uio->uio_offset < 0)
 		return (EINVAL);
