@@ -666,8 +666,8 @@ options		IPSEC_SUPPORT
 #options 	IPSEC_DEBUG		#debug for IP security
 
 
-# TLS framing and encryption of data transmitted over TCP sockets.
-options		KERN_TLS		# TLS transmit offload
+# TLS framing and encryption/decryption of data over TCP sockets.
+options		KERN_TLS		# TLS transmit and receive offload
 
 #
 # SMB/CIFS requester
@@ -2593,9 +2593,6 @@ options 	UPLCOM_INTR_INTERVAL=100	# interrupt pipe interval
 options 	UVSCOM_DEFAULT_OPKTSIZE=8	# default output packet size
 options 	UVSCOM_INTR_INTERVAL=100	# interrupt pipe interval
 						# in milliseconds
-
-# options for usbhid:
-options 	USBHID_ENABLED		# Prefer usbhid to other USBHID drivers
 
 #####################################################################
 # FireWire support

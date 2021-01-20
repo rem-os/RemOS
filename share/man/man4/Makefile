@@ -197,6 +197,7 @@ MAN=	aac.4 \
 	${_hptnr.4} \
 	${_hptrr.4} \
 	hsctrl.4 \
+	htu21.4 \
 	${_hv_kvp.4} \
 	${_hv_netvsc.4} \
 	${_hv_storvsc.4} \
@@ -410,6 +411,7 @@ MAN=	aac.4 \
 	oce.4 \
 	ocs_fc.4\
 	ohci.4 \
+	openfirm.4 \
 	orm.4 \
 	${_ossl.4} \
 	ow.4 \
@@ -718,6 +720,7 @@ MLINKS+=netintro.4 net.4 \
 	netintro.4 networking.4
 MLINKS+=${_nfe.4} ${_if_nfe.4}
 MLINKS+=nge.4 if_nge.4
+MLINKS+=openfirm.4 openfirmware.4
 MLINKS+=ow.4 onewire.4
 MLINKS+=pccbb.4 cbb.4
 MLINKS+=pcm.4 snd.4 \

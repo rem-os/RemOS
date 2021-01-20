@@ -1035,6 +1035,7 @@ ffs_mountfs(odevvp, mp, td)
 	VOP_UNLOCK(odevvp);
 	KASSERT(devvp->v_type == VCHR, ("reclaimed devvp"));
 	dev = devvp->v_rdev;
+	KASSERT(dev->si_snapdata == NULL, ("non-NULL snapshot data"));
 	if (atomic_cmpset_acq_ptr((uintptr_t *)&dev->si_mountpt, 0,
 	    (uintptr_t)mp) == 0) {
 		mntfs_freevp(devvp);
@@ -1546,7 +1547,14 @@ ffs_unmount(mp, mntflags)
 	BO_UNLOCK(&ump->um_odevvp->v_bufobj);
 	atomic_store_rel_ptr((uintptr_t *)&ump->um_dev->si_mountpt, 0);
 	mntfs_freevp(ump->um_devvp);
-	vrele(ump->um_odevvp);
+	/* Avoid LOR in vrele by passing in locked vnode and using vput */
+	if (vn_lock(ump->um_odevvp, LK_EXCLUSIVE | LK_NOWAIT) == 0) {
+		vput(ump->um_odevvp);
+	} else {
+		/* This should never happen, see commit message for details */
+		printf("ffs_unmount: Unexpected LK_NOWAIT failure\n");
+		vrele(ump->um_odevvp);
+	}
 	dev_rel(ump->um_dev);
 	mtx_destroy(UFS_MTX(ump));
 	if (mp->mnt_gjprovider != NULL) {
