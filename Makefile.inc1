@@ -137,9 +137,9 @@ TARGET_ABI=	gnueabi
 .endif
 .endif
 MACHINE_ABI?=	unknown
-MACHINE_TRIPLE?=${MACHINE_ARCH:S/amd64/x86_64/:C/[hs]f$//:S/mipsn32/mips64/}-${MACHINE_ABI}-freebsd13.0
+MACHINE_TRIPLE?=${MACHINE_ARCH:S/amd64/x86_64/:C/[hs]f$//:S/mipsn32/mips64/}-${MACHINE_ABI}-freebsd14.0
 TARGET_ABI?=	unknown
-TARGET_TRIPLE?=	${TARGET_ARCH:S/amd64/x86_64/:C/[hs]f$//:S/mipsn32/mips64/}-${TARGET_ABI}-freebsd13.0
+TARGET_TRIPLE?=	${TARGET_ARCH:S/amd64/x86_64/:C/[hs]f$//:S/mipsn32/mips64/}-${TARGET_ABI}-freebsd14.0
 KNOWN_ARCHES?=	aarch64/arm64 \
 		amd64 \
 		armv6/arm \
@@ -1876,7 +1876,13 @@ PKG_ABI!=${PKG_CMD} -o ABI_FILE=${WSTAGEDIR}/usr/bin/uname config ABI
 
 .if !defined(PKG_VERSION_FROM) && make(real-update-packages)
 .if defined(PKG_ABI)
+.if exists(${REPODIR}/${PKG_ABI})
 PKG_VERSION_FROM!=/usr/bin/readlink ${REPODIR}/${PKG_ABI}/latest
+PKG_VERSION_FROM_DIR=	${REPODIR}/${PKG_ABI}/${PKG_VERSION_FROM}
+.else
+PKG_VERSION_FROM=
+PKG_VERSION_FROM_DIR=
+.endif
 .endif
 .endif
 
@@ -1900,8 +1906,11 @@ real-packages:	stage-packages create-packages sign-packages .PHONY
 
 real-update-packages: stage-packages .PHONY
 	${_+_}${MAKE} -C ${.CURDIR} PKG_VERSION=${PKG_VERSION} create-packages
+.if empty(PKG_VERSION_FROM_DIR)
+	@echo "==> Bootstrapping repository, not checking for new packages"
+.else
 	@echo "==> Checking for new packages (comparing ${PKG_VERSION} to ${PKG_VERSION_FROM})"
-	@for pkg in ${REPODIR}/${PKG_ABI}/${PKG_VERSION_FROM}/${PKG_NAME_PREFIX}-*; do \
+	@for pkg in ${PKG_VERSION_FROM_DIR}/${PKG_NAME_PREFIX}-*; do \
 	  pkgname=$$(pkg query -F $${pkg} '%n' | sed 's/${PKG_NAME_PREFIX}-\(.*\)/\1/') ; \
 	  newpkgname=${PKG_NAME_PREFIX}-$${pkgname}-${PKG_VERSION}.${PKG_FORMAT} ; \
 	  oldsum=$$(pkg query -F $${pkg} '%X') ; \
@@ -1917,6 +1926,7 @@ real-update-packages: stage-packages .PHONY
 	    echo "==> New package $${newpkgname}" ; \
 	  fi ; \
 	done
+.endif
 	${_+_}@cd ${.CURDIR}; \
 		${MAKE} -f Makefile.inc1 PKG_VERSION=${PKG_VERSION} sign-packages
 
@@ -2857,7 +2867,7 @@ _prereq_libs+= lib/libssp_nonshared
 _startup_libs=	lib/csu
 _startup_libs+=	lib/libc
 _startup_libs+=	lib/libc_nonshared
-.if ${MK_LIBCPLUSPLUS} != "no"
+.if ${MK_CXX} != "no"
 _startup_libs+=	lib/libcxxrt
 .endif
 
@@ -2866,7 +2876,7 @@ _startup_libs+=	lib/libgcc_eh lib/libgcc_s
 
 lib/libgcc_s__L: lib/libc__L
 lib/libgcc_s__L: lib/libc_nonshared__L
-.if ${MK_LIBCPLUSPLUS} != "no"
+.if ${MK_CXX} != "no"
 lib/libcxxrt__L: lib/libgcc_s__L
 .endif
 
@@ -2888,7 +2898,7 @@ _prebuild_libs=	${_kerberos5_lib_libasn1} \
 		lib/libzstd \
 		${_lib_casper} \
 		lib/ncurses/ncurses \
-		lib/libopie lib/libpam/libpam ${_lib_libthr} \
+		lib/libopie lib/libpam/libpam lib/libthr \
 		${_lib_libradius} lib/libsbuf lib/libtacplus \
 		lib/libgeom \
 		${_cddl_lib_libumem} ${_cddl_lib_libnvpair} \
@@ -2915,16 +2925,12 @@ gnu/lib/libdialog__L: lib/msun__L lib/ncurses/ncurses__L
 _prebuild_libs+= lib/libregex
 .endif
 
-.if ${MK_LIBCPLUSPLUS} != "no"
+.if ${MK_CXX} != "no"
 _prebuild_libs+= lib/libc++
 .endif
 
 lib/libgeom__L: lib/libexpat__L lib/libsbuf__L
 lib/libkvm__L: lib/libelf__L
-
-.if ${MK_LIBTHR} != "no"
-_lib_libthr=	lib/libthr
-.endif
 
 .if ${MK_RADIUS_SUPPORT} != "no"
 _lib_libradius=	lib/libradius
@@ -3083,7 +3089,7 @@ lib/libradius__L: lib/libmd__L
 
 lib/libproc__L: \
     ${_cddl_lib_libctf:D${_cddl_lib_libctf}__L} lib/libelf__L lib/librtld_db__L lib/libutil__L
-.if ${MK_CXX} != "no" && ${MK_LIBCPLUSPLUS} != "no"
+.if ${MK_CXX} != "no"
 lib/libproc__L: lib/libcxxrt__L
 .endif
 

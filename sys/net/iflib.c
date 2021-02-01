@@ -1005,6 +1005,8 @@ iflib_netmap_txsync(struct netmap_kring *kring, int flags)
 
 	nm_i = kring->nr_hwcur;
 	if (nm_i != head) {	/* we have new packets to send */
+		uint32_t pkt_len = 0, seg_idx = 0;
+		int nic_i_start = -1, flags = 0;
 		pkt_info_zero(&pi);
 		pi.ipi_segs = txq->ift_segs;
 		pi.ipi_qsidx = kring->ring_id;
@@ -1019,22 +1021,40 @@ iflib_netmap_txsync(struct netmap_kring *kring, int flags)
 			u_int len = slot->len;
 			uint64_t paddr;
 			void *addr = PNMB(na, slot, &paddr);
-			int flags = (slot->flags & NS_REPORT ||
+
+			flags |= (slot->flags & NS_REPORT ||
 				nic_i == 0 || nic_i == report_frequency) ?
 				IPI_TX_INTR : 0;
 
-			/* device-specific */
-			pi.ipi_len = len;
-			pi.ipi_segs[0].ds_addr = paddr;
-			pi.ipi_segs[0].ds_len = len;
-			pi.ipi_nsegs = 1;
-			pi.ipi_ndescs = 0;
-			pi.ipi_pidx = nic_i;
-			pi.ipi_flags = flags;
+			/*
+			 * If this is the first packet fragment, save the
+			 * index of the first NIC slot for later.
+			 */
+			if (nic_i_start < 0)
+				nic_i_start = nic_i;
 
-			/* Fill the slot in the NIC ring. */
-			ctx->isc_txd_encap(ctx->ifc_softc, &pi);
-			DBG_COUNTER_INC(tx_encap);
+			pi.ipi_segs[seg_idx].ds_addr = paddr;
+			pi.ipi_segs[seg_idx].ds_len = len;
+			if (len) {
+				pkt_len += len;
+				seg_idx++;
+			}
+
+			if (!(slot->flags & NS_MOREFRAG)) {
+				pi.ipi_len = pkt_len;
+				pi.ipi_nsegs = seg_idx;
+				pi.ipi_pidx = nic_i_start;
+				pi.ipi_ndescs = 0;
+				pi.ipi_flags = flags;
+
+				/* Prepare the NIC TX ring. */
+				ctx->isc_txd_encap(ctx->ifc_softc, &pi);
+				DBG_COUNTER_INC(tx_encap);
+
+				/* Reinit per-packet info for the next one. */
+				flags = seg_idx = pkt_len = 0;
+				nic_i_start = -1;
+			}
 
 			/* prefetch for next round */
 			__builtin_prefetch(&ring->slot[nm_i + 1]);
@@ -1053,7 +1073,7 @@ iflib_netmap_txsync(struct netmap_kring *kring, int flags)
 			    txq->ift_sds.ifsd_map[nic_i],
 			    BUS_DMASYNC_PREWRITE);
 
-			slot->flags &= ~(NS_REPORT | NS_BUF_CHANGED);
+			slot->flags &= ~(NS_REPORT | NS_BUF_CHANGED | NS_MOREFRAG);
 			nm_i = nm_next(nm_i, lim);
 			nic_i = nm_next(nic_i, lim);
 		}
@@ -1116,6 +1136,7 @@ iflib_netmap_rxsync(struct netmap_kring *kring, int flags)
 	u_int n;
 	u_int const lim = kring->nkr_num_slots - 1;
 	int force_update = (flags & NAF_FORCE_READ) || kring->nr_kflags & NKR_PENDINTR;
+	int i = 0;
 
 	if_ctx_t ctx = ifp->if_softc;
 	if_shared_ctx_t sctx = ctx->ifc_sctx;
@@ -1177,17 +1198,31 @@ iflib_netmap_rxsync(struct netmap_kring *kring, int flags)
 			ri.iri_cidx = *cidxp;
 
 			error = ctx->isc_rxd_pkt_get(ctx->ifc_softc, &ri);
-			ring->slot[nm_i].len = error ? 0 : ri.iri_len - crclen;
-			ring->slot[nm_i].flags = 0;
+			for (i = 0; i < ri.iri_nfrags; i++) {
+				if (error) {
+					ring->slot[nm_i].len = 0;
+					ring->slot[nm_i].flags = 0;
+				} else {
+					ring->slot[nm_i].len = ri.iri_frags[i].irf_len;
+					if (i == (ri.iri_nfrags - 1)) {
+						ring->slot[nm_i].len -= crclen;
+						ring->slot[nm_i].flags = 0;
+					} else
+						ring->slot[nm_i].flags = NS_MOREFRAG;
+				}
+
+				bus_dmamap_sync(fl->ifl_buf_tag,
+				    fl->ifl_sds.ifsd_map[nic_i], BUS_DMASYNC_POSTREAD);
+				nm_i = nm_next(nm_i, lim);
+				fl->ifl_cidx = nic_i = nm_next(nic_i, lim);
+			}
+
 			if (have_rxcq) {
 				*cidxp = ri.iri_cidx;
 				while (*cidxp >= scctx->isc_nrxd[0])
 					*cidxp -= scctx->isc_nrxd[0];
 			}
-			bus_dmamap_sync(fl->ifl_buf_tag,
-			    fl->ifl_sds.ifsd_map[nic_i], BUS_DMASYNC_POSTREAD);
-			nm_i = nm_next(nm_i, lim);
-			fl->ifl_cidx = nic_i = nm_next(nic_i, lim);
+
 		}
 		if (n) { /* update the state variables */
 			if (netmap_no_pendintr && !force_update) {
@@ -1234,7 +1269,7 @@ iflib_netmap_attach(if_ctx_t ctx)
 	bzero(&na, sizeof(na));
 
 	na.ifp = ctx->ifc_ifp;
-	na.na_flags = NAF_BDG_MAYSLEEP;
+	na.na_flags = NAF_BDG_MAYSLEEP | NAF_MOREFRAG;
 	MPASS(ctx->ifc_softc_ctx.isc_ntxqsets);
 	MPASS(ctx->ifc_softc_ctx.isc_nrxqsets);
 
@@ -2654,7 +2689,8 @@ rxd_frag_to_sd(iflib_rxq_t rxq, if_rxd_frag_t irf, bool unload, if_rxsd_t sd,
 		}
 	} else {
 		fl->ifl_sds.ifsd_m[cidx] = NULL;
-		*pf_rv = PFIL_PASS;
+		if (pf_rv != NULL)
+			*pf_rv = PFIL_PASS;
 	}
 
 	if (unload && irf->irf_len != 0)
@@ -4195,7 +4231,7 @@ iflib_if_qflush(if_t ifp)
 #define IFCAP_FLAGS (IFCAP_HWCSUM_IPV6 | IFCAP_HWCSUM | IFCAP_LRO | \
 		     IFCAP_TSO | IFCAP_VLAN_HWTAGGING | IFCAP_HWSTATS | \
 		     IFCAP_VLAN_MTU | IFCAP_VLAN_HWFILTER | \
-		     IFCAP_VLAN_HWTSO | IFCAP_VLAN_HWCSUM | IFCAP_NOMAP)
+		     IFCAP_VLAN_HWTSO | IFCAP_VLAN_HWCSUM | IFCAP_MEXTPG)
 
 static int
 iflib_if_ioctl(if_t ifp, u_long command, caddr_t data)
@@ -4322,7 +4358,7 @@ iflib_if_ioctl(if_t ifp, u_long command, caddr_t data)
 
 		oldmask = if_getcapenable(ifp);
 		mask = ifr->ifr_reqcap ^ oldmask;
-		mask &= ctx->ifc_softc_ctx.isc_capabilities | IFCAP_NOMAP;
+		mask &= ctx->ifc_softc_ctx.isc_capabilities | IFCAP_MEXTPG;
 		setmask = 0;
 #ifdef TCP_OFFLOAD
 		setmask |= mask & (IFCAP_TOE4|IFCAP_TOE6);
@@ -4723,9 +4759,9 @@ iflib_device_register(device_t dev, void *sc, if_shared_ctx_t sctx, if_ctx_t *ct
 #endif
 
 	if_setcapabilities(ifp,
-	    scctx->isc_capabilities | IFCAP_HWSTATS | IFCAP_NOMAP);
+	    scctx->isc_capabilities | IFCAP_HWSTATS | IFCAP_MEXTPG);
 	if_setcapenable(ifp,
-	    scctx->isc_capenable | IFCAP_HWSTATS | IFCAP_NOMAP);
+	    scctx->isc_capenable | IFCAP_HWSTATS | IFCAP_MEXTPG);
 
 	if (scctx->isc_ntxqsets == 0 || (scctx->isc_ntxqsets_max && scctx->isc_ntxqsets_max < scctx->isc_ntxqsets))
 		scctx->isc_ntxqsets = scctx->isc_ntxqsets_max;
@@ -4864,7 +4900,7 @@ iflib_device_register(device_t dev, void *sc, if_shared_ctx_t sctx, if_ctx_t *ct
 		device_printf(dev,
 		    "Cannot use iflib with only 1 MSI-X interrupt!\n");
 		err = ENODEV;
-		goto fail_intr_free;
+		goto fail_queues;
 	}
 
 	ether_ifattach(ctx->ifc_ifp, ctx->ifc_mac.octet);
@@ -4900,13 +4936,14 @@ iflib_device_register(device_t dev, void *sc, if_shared_ctx_t sctx, if_ctx_t *ct
 
 fail_detach:
 	ether_ifdetach(ctx->ifc_ifp);
-fail_intr_free:
-	iflib_free_intr_mem(ctx);
 fail_queues:
+	iflib_tqg_detach(ctx);
 	iflib_tx_structures_free(ctx);
 	iflib_rx_structures_free(ctx);
-	iflib_tqg_detach(ctx);
 	IFDI_DETACH(ctx);
+	IFDI_QUEUES_FREE(ctx);
+fail_intr_free:
+	iflib_free_intr_mem(ctx);
 fail_unlock:
 	CTX_UNLOCK(ctx);
 	iflib_deregister(ctx);
@@ -5103,11 +5140,12 @@ iflib_pseudo_register(device_t dev, if_shared_ctx_t sctx, if_ctx_t *ctxp,
 fail_detach:
 	ether_ifdetach(ctx->ifc_ifp);
 fail_queues:
+	iflib_tqg_detach(ctx);
 	iflib_tx_structures_free(ctx);
 	iflib_rx_structures_free(ctx);
-	iflib_tqg_detach(ctx);
 fail_iflib_detach:
 	IFDI_DETACH(ctx);
+	IFDI_QUEUES_FREE(ctx);
 fail_unlock:
 	CTX_UNLOCK(ctx);
 	iflib_deregister(ctx);
@@ -5137,6 +5175,8 @@ iflib_pseudo_deregister(if_ctx_t ctx)
 	iflib_tqg_detach(ctx);
 	iflib_tx_structures_free(ctx);
 	iflib_rx_structures_free(ctx);
+	IFDI_DETACH(ctx);
+	IFDI_QUEUES_FREE(ctx);
 
 	iflib_deregister(ctx);
 
@@ -5197,17 +5237,18 @@ iflib_device_deregister(if_ctx_t ctx)
 		led_destroy(ctx->ifc_led_dev);
 
 	iflib_tqg_detach(ctx);
+	iflib_tx_structures_free(ctx);
+	iflib_rx_structures_free(ctx);
+
 	CTX_LOCK(ctx);
 	IFDI_DETACH(ctx);
+	IFDI_QUEUES_FREE(ctx);
 	CTX_UNLOCK(ctx);
 
 	/* ether_ifdetach calls if_qflush - lock must be destroy afterwards*/
 	iflib_free_intr_mem(ctx);
 
 	bus_generic_detach(dev);
-
-	iflib_tx_structures_free(ctx);
-	iflib_rx_structures_free(ctx);
 
 	iflib_deregister(ctx);
 
@@ -5792,7 +5833,6 @@ iflib_tx_structures_free(if_ctx_t ctx)
 	}
 	free(ctx->ifc_txqs, M_IFLIB);
 	ctx->ifc_txqs = NULL;
-	IFDI_QUEUES_FREE(ctx);
 }
 
 /*********************************************************************

@@ -159,7 +159,6 @@ SUBDIR=	\
 	${_if_me} \
 	if_infiniband \
 	if_lagg \
-	${_if_ndis} \
 	${_if_stf} \
 	if_tuntap \
 	if_vlan \
@@ -261,7 +260,6 @@ SUBDIR=	\
 	mxge \
 	my \
 	${_nctgpio} \
-	${_ndis} \
 	${_netgraph} \
 	${_nfe} \
 	nfscl \
@@ -376,7 +374,7 @@ SUBDIR=	\
 	unionfs \
 	usb \
 	${_vesa} \
-	${_virtio} \
+	virtio \
 	vge \
 	${_viawd} \
 	videomode \
@@ -634,7 +632,6 @@ _em=		em
 _et=		et
 _ftwd=		ftwd
 _exca=		exca
-_if_ndis=	if_ndis
 _io=		io
 _itwd=		itwd
 _ix=		ix
@@ -643,7 +640,6 @@ _ixv=		ixv
 _lio=		lio
 .endif
 _nctgpio=	nctgpio
-_ndis=		ndis
 _ntb=		ntb
 _ocs_fc=	ocs_fc
 _pccard=	pccard
@@ -722,7 +718,6 @@ _tpm=		tpm
 _twa=		twa
 _vesa=		vesa
 _viawd=		viawd
-_virtio=	virtio
 _wpi=		wpi
 .if ${MK_SOURCELESS_UCODE} != "no"
 _wpifw=		wpifw
@@ -794,7 +789,6 @@ _ffec=		ffec
 _nvd=		nvd
 _nvme=		nvme
 _pccard=	pccard
-_virtio=	virtio
 .endif
 
 .if ${MACHINE_ARCH:Mpowerpc64*} != ""

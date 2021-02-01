@@ -4331,6 +4331,7 @@ netgraph/ng_tee.c		optional netgraph_tee
 netgraph/ng_tty.c		optional netgraph_tty
 netgraph/ng_vjc.c		optional netgraph_vjc
 netgraph/ng_vlan.c		optional netgraph_vlan
+netgraph/ng_vlan_rotate.c	optional netgraph_vlan_rotate
 netinet/accf_data.c		optional accept_filter_data inet
 netinet/accf_dns.c		optional accept_filter_dns inet
 netinet/accf_http.c		optional accept_filter_http inet
@@ -4556,7 +4557,11 @@ compat/linuxkpi/common/src/linux_compat.c	optional compat_linuxkpi \
 	compile-with "${LINUXKPI_C}"
 compat/linuxkpi/common/src/linux_current.c	optional compat_linuxkpi \
 	compile-with "${LINUXKPI_C}"
+compat/linuxkpi/common/src/linux_devres.c	optional compat_linuxkpi \
+	compile-with "${LINUXKPI_C}"
 compat/linuxkpi/common/src/linux_dmi.c		optional compat_linuxkpi \
+	compile-with "${LINUXKPI_C}"
+compat/linuxkpi/common/src/linux_firmware.c	optional compat_linuxkpi \
 	compile-with "${LINUXKPI_C}"
 compat/linuxkpi/common/src/linux_hrtimer.c	optional compat_linuxkpi \
 	compile-with "${LINUXKPI_C}"
@@ -4908,6 +4913,7 @@ dev/mlx5/mlx5_en/mlx5_en_port_buffer.c		optional mlx5en pci inet inet6	\
 	compile-with "${OFED_C}"
 
 # crypto support
+opencrypto/cbc_mac.c		optional crypto
 opencrypto/criov.c		optional crypto | ipsec | ipsec_support
 opencrypto/crypto.c		optional crypto | ipsec | ipsec_support
 opencrypto/cryptodev.c		optional cryptodev
@@ -4918,6 +4924,7 @@ opencrypto/gmac.c		optional crypto | ipsec | ipsec_support
 opencrypto/gfmult.c		optional crypto | ipsec | ipsec_support
 opencrypto/rmd160.c		optional crypto | ipsec | ipsec_support
 opencrypto/xform.c		optional crypto | ipsec | ipsec_support
+opencrypto/xform_cbc_mac.c	optional crypto
 opencrypto/xform_poly1305.c	optional crypto \
 	compile-with "${NORMAL_C} -I$S/contrib/libsodium/src/libsodium/include -I$S/crypto/libsodium"
 contrib/libsodium/src/libsodium/crypto_onetimeauth/poly1305/onetimeauth_poly1305.c \
@@ -4949,9 +4956,6 @@ contrib/libsodium/src/libsodium/crypto_aead/xchacha20poly1305/sodium/aead_xchach
 	optional crypto \
 	compile-with "${NORMAL_C} -I$S/contrib/libsodium/src/libsodium/include/sodium -I$S/crypto/libsodium"
 
-
-opencrypto/cbc_mac.c		optional crypto
-opencrypto/xform_cbc_mac.c	optional crypto
 rpc/auth_none.c			optional krpc | nfslockd | nfscl | nfsd
 rpc/auth_unix.c			optional krpc | nfslockd | nfscl | nfsd
 rpc/authunix_prot.c		optional krpc | nfslockd | nfscl | nfsd

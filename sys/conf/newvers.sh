@@ -53,8 +53,8 @@
 #
 
 TYPE="FreeBSD"
-REVISION="13.0"
-BRANCH="ALPHA1"
+REVISION="14.0"
+BRANCH="CURRENT"
 if [ -n "${BRANCH_OVERRIDE}" ]; then
 	BRANCH=${BRANCH_OVERRIDE}
 fi
@@ -252,11 +252,15 @@ fi
 
 if [ -n "$git_cmd" ] ; then
 	git=$($git_cmd rev-parse --verify --short HEAD 2>/dev/null)
-	if [ "$(git rev-parse --is-shallow-repository)" = false ] ; then
-		git_cnt=$($git_cmd rev-list --count HEAD 2>/dev/null)
+	if [ "$($git_cmd rev-parse --is-shallow-repository)" = false ] ; then
+		git_cnt=$($git_cmd rev-list --first-parent --count HEAD 2>/dev/null)
 		if [ -n "$git_cnt" ] ; then
-			git="c${git_cnt}-g${git}"
+			git="n${git_cnt}-${git}"
 		fi
+	fi
+	git_b=$($git_cmd rev-parse --abbrev-ref HEAD)
+	if [ -n "$git_b" -a "$git_b" != "HEAD" ] ; then
+		git="${git_b}-${git}"
 	fi
 	if git_tree_modified; then
 		git="${git}-dirty"
@@ -307,7 +311,7 @@ EOF
 )
 vers_content_old=$(cat vers.c 2>/dev/null || true)
 if [ "$vers_content_new" != "$vers_content_old" ]; then
-	printf "%s" "$vers_content_new" > vers.c
+	printf "%s\n" "$vers_content_new" > vers.c
 fi
 
 echo $((v + 1)) > version
