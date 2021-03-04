@@ -109,6 +109,8 @@ struct vesa_edid_info {
 	uint8_t checksum;
 } __packed;
 
+extern struct vesa_edid_info *edid_info;
+
 #define	STD_TIMINGS	8
 #define	DET_TIMINGS	4
 
@@ -163,6 +165,18 @@ struct vesa_flat_panel_info {
 #define	NCOLORS	16
 #define	NCMAP	256
 extern uint32_t cmap[NCMAP];
+
+/*
+ * VT_FB_MAX_WIDTH and VT_FB_MAX_HEIGHT are dimensions from where
+ * we will not auto select smaller font than 8x16.
+ * See also sys/dev/vt/vt.h
+ */
+#ifndef VT_FB_MAX_WIDTH
+#define	VT_FB_MAX_WIDTH		4096
+#endif
+#ifndef VT_FB_MAX_HEIGHT
+#define	VT_FB_MAX_HEIGHT	2400
+#endif
 
 enum FB_TYPE {
 	FB_TEXT = -1,

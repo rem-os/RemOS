@@ -101,7 +101,7 @@ SYSCTL_DECL(_net_route);
 #else
 #define _MP_FLAGS	CTLFLAG_RD
 #endif
-VNET_DEFINE(u_int, rib_route_multipath) = 0;
+VNET_DEFINE(u_int, rib_route_multipath) = 1;
 SYSCTL_UINT(_net_route, OID_AUTO, multipath, _MP_FLAGS | CTLFLAG_VNET,
     &VNET_NAME(rib_route_multipath), 0, "Enable route multipath");
 #undef _MP_FLAGS
@@ -589,19 +589,14 @@ create_rtentry(struct rib_head *rnh, struct rt_addrinfo *info,
 		error = rt_getifa_fib(info, rnh->rib_fibnum);
 		if (error)
 			return (error);
-	} else {
-		ifa_ref(info->rti_ifa);
 	}
 
 	error = nhop_create_from_info(rnh, info, &nh);
-	if (error != 0) {
-		ifa_free(info->rti_ifa);
+	if (error != 0)
 		return (error);
-	}
 
 	rt = uma_zalloc(V_rtzone, M_NOWAIT | M_ZERO);
 	if (rt == NULL) {
-		ifa_free(info->rti_ifa);
 		nhop_free(nh);
 		return (ENOBUFS);
 	}
@@ -914,7 +909,6 @@ static int
 change_nhop(struct rib_head *rnh, struct rt_addrinfo *info,
     struct nhop_object *nh_orig, struct nhop_object **nh_new)
 {
-	int free_ifa = 0;
 	int error;
 
 	/*
@@ -928,24 +922,15 @@ change_nhop(struct rib_head *rnh, struct rt_addrinfo *info,
 	    (info->rti_info[RTAX_IFA] != NULL &&
 	     !sa_equal(info->rti_info[RTAX_IFA], nh_orig->nh_ifa->ifa_addr))) {
 		error = rt_getifa_fib(info, rnh->rib_fibnum);
-		if (info->rti_ifa != NULL)
-			free_ifa = 1;
 
 		if (error != 0) {
-			if (free_ifa) {
-				ifa_free(info->rti_ifa);
-				info->rti_ifa = NULL;
-			}
-
+			info->rti_ifa = NULL;
 			return (error);
 		}
 	}
 
 	error = nhop_create_from_nhop(rnh, nh_orig, info, nh_new);
-	if (free_ifa) {
-		ifa_free(info->rti_ifa);
-		info->rti_ifa = NULL;
-	}
+	info->rti_ifa = NULL;
 
 	return (error);
 }

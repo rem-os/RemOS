@@ -36,6 +36,30 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
+# 20210304: remove old bc and dc support and test files
+.if !defined(WITHOUT_GH_BC)
+OLD_FILES+=usr/share/misc/bc.library
+OLD_FILES+=usr/tests/usr.bin/dc/Kyuafile
+OLD_FILES+=usr/tests/usr.bin/dc/bcode
+OLD_FILES+=usr/tests/usr.bin/dc/inout
+OLD_DIRS+=usr/tests/usr.bin/dc
+.endif
+
+# 20210302: fmtree removed
+OLD_FILES+=usr/sbin/fmtree
+OLD_FILES+=usr/share/man/man8/fmtree.8.gz
+
+# 20210201: bump shared libraries which link against ncurses
+OLD_LIBS+=lib/libedit.so.7
+OLD_LIBS+=usr/lib/libdialog.so.8
+OLD_LIBS+=usr/lib/libdpv.so.1
+OLD_LIBS+=usr/lib/libform.so.5
+OLD_LIBS+=usr/lib/libformw.so.5
+OLD_LIBS+=usr/lib/libmenu.so.5
+OLD_LIBS+=usr/lib/libmenuw.so.5
+OLD_LIBS+=usr/lib/libpanel.so.5
+OLD_LIBS+=usr/lib/libpanelw.so.5
+
 # 20210125: ndis driver support removed
 OLD_FILES+=usr/sbin/ndiscvt
 OLD_FILES+=usr/sbin/ndisgen
@@ -2599,8 +2623,9 @@ OLD_FILES+=usr/bin/mklocale
 OLD_FILES+=usr/share/man/man1/mklocale.1.gz
 OLD_FILES+=usr/bin/colldef
 OLD_FILES+=usr/share/man/man1/colldef.1.gz
-# 20190904: Remove boot1.efifat
+# 20190904: Remove boot1.efifat and gptboot.efifat (which never should have been)
 OLD_FILES+=boot/boot1.efifat
+OLD_FILES+=boot/gptboot.efifat
 # 20190903: pc-sysinstall(8) removed
 OLD_FILES+=usr/share/examples/pc-sysinstall/README
 OLD_FILES+=usr/share/examples/pc-sysinstall/pc-autoinstall.conf

@@ -6747,8 +6747,7 @@ pmap_enter(pmap_t pmap, vm_offset_t va, vm_page_t m, vm_prot_t prot,
 	KASSERT(va < UPT_MIN_ADDRESS || va >= UPT_MAX_ADDRESS,
 	    ("pmap_enter: invalid to pmap_enter page table pages (va: 0x%lx)",
 	    va));
-	KASSERT((m->oflags & VPO_UNMANAGED) != 0 || va < kmi.clean_sva ||
-	    va >= kmi.clean_eva,
+	KASSERT((m->oflags & VPO_UNMANAGED) != 0 || !VA_IS_CLEANMAP(va),
 	    ("pmap_enter: managed mapping within the clean submap"));
 	if ((m->oflags & VPO_UNMANAGED) == 0)
 		VM_PAGE_OBJECT_BUSY_ASSERT(m);
@@ -7262,7 +7261,7 @@ pmap_enter_quick_locked(pmap_t pmap, vm_offset_t va, vm_page_t m,
 {
 	pt_entry_t newpte, *pte, PG_V;
 
-	KASSERT(va < kmi.clean_sva || va >= kmi.clean_eva ||
+	KASSERT(!VA_IS_CLEANMAP(va) ||
 	    (m->oflags & VPO_UNMANAGED) != 0,
 	    ("pmap_enter_quick_locked: managed mapping within the clean submap"));
 	PG_V = pmap_valid_bit(pmap);
@@ -11349,9 +11348,6 @@ restart:
 				continue;
 			}
 			pa = pdpe & PG_FRAME;
-			if (PMAP_ADDRESS_IN_LARGEMAP(sva) &&
-			    vm_phys_paddr_to_vm_page(pa) == NULL)
-				goto restart;
 			if ((pdpe & PG_PS) != 0) {
 				sva = rounddown2(sva, NBPDP);
 				sysctl_kmaps_check(sb, &range, sva, pml4e, pdpe,
@@ -11359,6 +11355,15 @@ restart:
 				range.pdpes++;
 				sva += NBPDP;
 				continue;
+			}
+			if (PMAP_ADDRESS_IN_LARGEMAP(sva) &&
+			    vm_phys_paddr_to_vm_page(pa) == NULL) {
+				/*
+				 * Page table pages for the large map may be
+				 * freed.  Validate the next-level address
+				 * before descending.
+				 */
+				goto restart;
 			}
 			pd = (pd_entry_t *)PHYS_TO_DMAP(pa);
 
@@ -11371,9 +11376,6 @@ restart:
 					continue;
 				}
 				pa = pde & PG_FRAME;
-				if (PMAP_ADDRESS_IN_LARGEMAP(sva) &&
-				    vm_phys_paddr_to_vm_page(pa) == NULL)
-					goto restart;
 				if ((pde & PG_PS) != 0) {
 					sva = rounddown2(sva, NBPDR);
 					sysctl_kmaps_check(sb, &range, sva,
@@ -11381,6 +11383,15 @@ restart:
 					range.pdes++;
 					sva += NBPDR;
 					continue;
+				}
+				if (PMAP_ADDRESS_IN_LARGEMAP(sva) &&
+				    vm_phys_paddr_to_vm_page(pa) == NULL) {
+					/*
+					 * Page table pages for the large map
+					 * may be freed.  Validate the
+					 * next-level address before descending.
+					 */
+					goto restart;
 				}
 				pt = (pt_entry_t *)PHYS_TO_DMAP(pa);
 

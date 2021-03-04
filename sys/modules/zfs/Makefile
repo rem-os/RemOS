@@ -126,6 +126,7 @@ SRCS+=	abd_os.c \
 	zfs_ioctl_compat.c \
 	zfs_ioctl_os.c \
 	zfs_log.c \
+	zfs_racct.c \
 	zfs_replay.c \
 	zfs_vfsops.c \
 	zfs_vnops_os.c \
@@ -281,6 +282,8 @@ SRCS+=	zfs_zstd.c \
 	zstd.c
 
 .include <bsd.kmod.mk>
+
+CFLAGS+= -include ${SRCTOP}/sys/cddl/compat/opensolaris/sys/debug_compat.h
 
 CWARNFLAGS+=	${OPENZFS_CWARNFLAGS}
 

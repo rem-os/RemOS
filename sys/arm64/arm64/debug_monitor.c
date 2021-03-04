@@ -186,6 +186,9 @@ void
 kdb_cpu_set_singlestep(void)
 {
 
+	KASSERT((READ_SPECIALREG(daif) & PSR_D) == PSR_D,
+	    ("%s: debug exceptions are not masked", __func__));
+
 	kdb_frame->tf_spsr |= DBG_SPSR_SS;
 	WRITE_SPECIALREG(mdscr_el1, READ_SPECIALREG(mdscr_el1) |
 	    DBG_MDSCR_SS | DBG_MDSCR_KDE);
@@ -204,6 +207,9 @@ kdb_cpu_set_singlestep(void)
 void
 kdb_cpu_clear_singlestep(void)
 {
+
+	KASSERT((READ_SPECIALREG(daif) & PSR_D) == PSR_D,
+	    ("%s: debug exceptions are not masked", __func__));
 
 	WRITE_SPECIALREG(mdscr_el1, READ_SPECIALREG(mdscr_el1) &
 	    ~(DBG_MDSCR_SS | DBG_MDSCR_KDE));
@@ -471,11 +477,13 @@ dbg_register_sync(struct debug_monitor_state *monitor)
 void
 dbg_monitor_init(void)
 {
+	uint64_t aa64dfr0;
 	u_int i;
 
 	/* Find out many breakpoints and watchpoints we can use */
-	dbg_watchpoint_num = ((READ_SPECIALREG(id_aa64dfr0_el1) >> 20) & 0xf) + 1;
-	dbg_breakpoint_num = ((READ_SPECIALREG(id_aa64dfr0_el1) >> 12) & 0xf) + 1;
+	aa64dfr0 = READ_SPECIALREG(id_aa64dfr0_el1);
+	dbg_watchpoint_num = ID_AA64DFR0_WRPs_VAL(aa64dfr0);
+	dbg_breakpoint_num = ID_AA64DFR0_BRPs_VAL(aa64dfr0);
 
 	if (bootverbose && PCPU_GET(cpuid) == 0) {
 		printf("%d watchpoints and %d breakpoints supported\n",

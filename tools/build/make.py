@@ -124,9 +124,14 @@ def default_cross_toolchain():
     # default to homebrew-installed clang on MacOS if available
     if sys.platform.startswith("darwin"):
         if shutil.which("brew"):
-            llvm_dir = subprocess.getoutput("brew --prefix llvm")
-            if llvm_dir and Path(llvm_dir, "bin").exists():
-                return str(Path(llvm_dir, "bin"))
+            llvm_dir = subprocess.run(["brew", "--prefix", "llvm"],
+                                      capture_output=True).stdout.strip()
+            debug("Inferred LLVM dir as", llvm_dir)
+            try:
+                if llvm_dir and Path(llvm_dir.decode("utf-8"), "bin").exists():
+                    return str(Path(llvm_dir.decode("utf-8"), "bin"))
+            except OSError:
+                return None
     return None
 
 
@@ -137,7 +142,7 @@ if __name__ == "__main__":
                         help="Directory to look for cc/c++/cpp/ld to build "
                              "host (" + sys.platform + ") binaries",
                         default="/usr/bin")
-    parser.add_argument("--cross-bindir", default=default_cross_toolchain(),
+    parser.add_argument("--cross-bindir", default=None,
                         help="Directory to look for cc/c++/cpp/ld to build "
                              "target binaries (only needed if XCC/XCPP/XLD "
                              "are not set)")
@@ -154,10 +159,10 @@ if __name__ == "__main__":
                         help="Print information on inferred env vars")
     parser.add_argument("--clean", action="store_true",
                         help="Do a clean rebuild instead of building with "
-                             "-DNO_CLEAN")
+                             "-DWITHOUT_CLEAN")
     parser.add_argument("--no-clean", action="store_false", dest="clean",
                         help="Do a clean rebuild instead of building with "
-                             "-DNO_CLEAN")
+                             "-DWITHOUT_CLEAN")
     try:
         import argcomplete  # bash completion:
 
@@ -165,6 +170,8 @@ if __name__ == "__main__":
     except ImportError:
         pass
     parsed_args, bmake_args = parser.parse_known_args()
+    if parsed_args.cross_bindir is None:
+        parsed_args.cross_bindir = default_cross_toolchain()
 
     MAKEOBJDIRPREFIX = os.getenv("MAKEOBJDIRPREFIX")
     if not MAKEOBJDIRPREFIX:
@@ -182,13 +189,6 @@ if __name__ == "__main__":
                 sys.exit("TARGET= and TARGET_ARCH= must be set explicitly "
                          "when building on non-FreeBSD")
         # infer values for CC/CXX/CPP
-
-        if sys.platform.startswith(
-                "linux") and parsed_args.host_compiler_type == "cc":
-            # FIXME: bsd.compiler.mk doesn't handle the output of GCC if it
-            #  is /usr/bin/cc on Ubuntu since it doesn't contain the GCC string.
-            parsed_args.host_compiler_type = "gcc"
-
         if parsed_args.host_compiler_type == "gcc":
             default_cc, default_cxx, default_cpp = ("gcc", "g++", "cpp")
         # FIXME: this should take values like `clang-9` and then look for
@@ -225,8 +225,8 @@ if __name__ == "__main__":
         if not shutil.which("strip"):
             if sys.platform.startswith("darwin"):
                 # On macOS systems we have to use /usr/bin/strip.
-                sys.exit("Cannot find required tool 'strip'. Please install the"
-                         " host compiler and command line tools.")
+                sys.exit("Cannot find required tool 'strip'. Please install "
+                         "the host compiler and command line tools.")
             if parsed_args.host_compiler_type == "clang":
                 strip_binary = "llvm-strip"
             else:
@@ -250,10 +250,10 @@ if __name__ == "__main__":
             and not is_make_var_set("WITHOUT_CLEAN")):
         # Avoid accidentally deleting all of the build tree and wasting lots of
         # time cleaning directories instead of just doing a rm -rf ${.OBJDIR}
-        want_clean = input("You did not set -DNO_CLEAN/--clean/--no-clean."
-                           " Did you really mean to do a  clean build? y/[N] ")
+        want_clean = input("You did not set -DWITHOUT_CLEAN/--clean/--no-clean."
+                           " Did you really mean to do a clean build? y/[N] ")
         if not want_clean.lower().startswith("y"):
-            bmake_args.append("-DNO_CLEAN")
+            bmake_args.append("-DWITHOUT_CLEAN")
 
     env_cmd_str = " ".join(
         shlex.quote(k + "=" + v) for k, v in new_env_vars.items())

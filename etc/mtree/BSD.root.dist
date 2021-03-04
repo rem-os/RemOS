@@ -18,8 +18,6 @@
             rockchip              tags=package=runtime
             ..
         ..
-        efi
-        ..
         firmware
         ..
         loader.conf.d             tags=package=bootloader
@@ -95,6 +93,8 @@
         syslog.d
         ..
         zfs
+            compatibility.d
+            ..
         ..
     ..
     lib

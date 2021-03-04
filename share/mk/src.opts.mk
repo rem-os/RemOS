@@ -99,7 +99,6 @@ __DEFAULT_YES_OPTIONS = \
     FILE \
     FINGER \
     FLOPPY \
-    FMTREE \
     FORTH \
     FP_LIBC \
     FREEBSD_UPDATE \
