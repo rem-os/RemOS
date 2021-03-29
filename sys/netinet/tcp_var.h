@@ -115,7 +115,7 @@ struct sackhint {
 					 */
 	uint32_t	recover_fs;	/* Flight Size at the start of Loss recovery */
 	uint32_t	prr_delivered;	/* Total bytes delivered using PRR */
-	uint32_t	_pad[1];	/* TBD */
+	uint32_t	prr_out;	/* Bytes sent during IN_RECOVERY */
 };
 
 #define SEGQ_EMPTY(tp) TAILQ_EMPTY(&(tp)->t_segq)
@@ -1063,7 +1063,7 @@ void	 tcp_clean_dsack_blocks(struct tcpcb *tp);
 void	 tcp_clean_sackreport(struct tcpcb *tp);
 void	 tcp_sack_adjust(struct tcpcb *tp);
 struct sackhole *tcp_sack_output(struct tcpcb *tp, int *sack_bytes_rexmt);
-void	 tcp_prr_partialack(struct tcpcb *, struct tcphdr *);
+void	 tcp_do_prr_ack(struct tcpcb *, struct tcphdr *);
 void	 tcp_sack_partialack(struct tcpcb *, struct tcphdr *);
 void	 tcp_free_sackholes(struct tcpcb *tp);
 int	 tcp_newreno(struct tcpcb *, struct tcphdr *);

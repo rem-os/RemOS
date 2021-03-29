@@ -298,8 +298,8 @@ ktls_ocf_tls_cbc_encrypt(struct ktls_session *tls,
 		memcpy(crp.crp_iv, hdr + 1, AES_BLOCK_LEN);
 	crypto_use_uio(&crp, &uio);
 	if (!inplace) {
-		memcpy(out_iov, outiov, sizeof(*iniov) * outiovcnt);
-		out_iov[outiovcnt] = iov[outiovcnt + 1];
+		memcpy(out_iov, outiov, sizeof(*outiov) * outiovcnt);
+		out_iov[outiovcnt] = iov[iniovcnt + 1];
 		out_uio.uio_iov = out_iov;
 		out_uio.uio_iovcnt = outiovcnt + 1;
 		out_uio.uio_offset = 0;
@@ -574,7 +574,7 @@ ktls_ocf_tls13_aead_encrypt(struct ktls_session *tls,
 	if (!inplace) {
 		/* Duplicate the output iov to append the trailer. */
 		memcpy(out_iov, outiov, outiovcnt * sizeof(*out_iov));
-		out_iov[outiovcnt] = iov[outiovcnt];
+		out_iov[outiovcnt] = iov[iniovcnt];
 
 		out_uio.uio_iov = out_iov;
 		out_uio.uio_iovcnt = outiovcnt + 1;
