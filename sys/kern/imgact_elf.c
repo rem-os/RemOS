@@ -106,8 +106,6 @@ SYSCTL_NODE(_kern, OID_AUTO, __CONCAT(elf, __ELF_WORD_SIZE),
     CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
     "");
 
-#define	CORE_BUF_SIZE	(16 * 1024)
-
 int __elfN(fallback_brand) = -1;
 SYSCTL_INT(__CONCAT(_kern_elf, __ELF_WORD_SIZE), OID_AUTO,
     fallback_brand, CTLFLAG_RWTUN, &__elfN(fallback_brand), 0,
@@ -1454,32 +1452,20 @@ struct note_info {
 
 TAILQ_HEAD(note_info_list, note_info);
 
-/* Coredump output parameters. */
-struct coredump_params {
-	off_t		offset;
-	struct ucred	*active_cred;
-	struct ucred	*file_cred;
-	struct thread	*td;
-	struct vnode	*vp;
-	struct compressor *comp;
-};
-
 extern int compress_user_cores;
 extern int compress_user_cores_level;
 
 static void cb_put_phdr(vm_map_entry_t, void *);
 static void cb_size_segment(vm_map_entry_t, void *);
-static int core_write(struct coredump_params *, const void *, size_t, off_t,
-    enum uio_seg, size_t *);
-static void each_dumpable_segment(struct thread *, segment_callback, void *);
+static void each_dumpable_segment(struct thread *, segment_callback, void *,
+    int);
 static int __elfN(corehdr)(struct coredump_params *, int, void *, size_t,
-    struct note_info_list *, size_t);
+    struct note_info_list *, size_t, int);
 static void __elfN(prepare_notes)(struct thread *, struct note_info_list *,
     size_t *);
-static void __elfN(puthdr)(struct thread *, void *, size_t, int, size_t);
+static void __elfN(puthdr)(struct thread *, void *, size_t, int, size_t, int);
 static void __elfN(putnote)(struct note_info *, struct sbuf *);
 static size_t register_note(struct note_info_list *, int, outfunc_t, void *);
-static int sbuf_drain_core_output(void *, const char *, int);
 
 static void __elfN(note_fpregset)(void *, struct sbuf *, size_t *);
 static void __elfN(note_prpsinfo)(void *, struct sbuf *, size_t *);
@@ -1497,34 +1483,6 @@ static void note_procstat_rlimit(void *, struct sbuf *, size_t *);
 static void note_procstat_umask(void *, struct sbuf *, size_t *);
 static void note_procstat_vmmap(void *, struct sbuf *, size_t *);
 
-/*
- * Write out a core segment to the compression stream.
- */
-static int
-compress_chunk(struct coredump_params *p, char *base, char *buf, u_int len)
-{
-	u_int chunk_len;
-	int error;
-
-	while (len > 0) {
-		chunk_len = MIN(len, CORE_BUF_SIZE);
-
-		/*
-		 * We can get EFAULT error here.
-		 * In that case zero out the current chunk of the segment.
-		 */
-		error = copyin(base, buf, chunk_len);
-		if (error != 0)
-			bzero(buf, chunk_len);
-		error = compressor_write(p->comp, buf, chunk_len);
-		if (error != 0)
-			break;
-		base += chunk_len;
-		len -= chunk_len;
-	}
-	return (error);
-}
-
 static int
 core_compressed_write(void *base, size_t len, off_t offset, void *arg)
 {
@@ -1533,128 +1491,11 @@ core_compressed_write(void *base, size_t len, off_t offset, void *arg)
 	    UIO_SYSSPACE, NULL));
 }
 
-static int
-core_write(struct coredump_params *p, const void *base, size_t len,
-    off_t offset, enum uio_seg seg, size_t *resid)
-{
-
-	return (vn_rdwr_inchunks(UIO_WRITE, p->vp, __DECONST(void *, base),
-	    len, offset, seg, IO_UNIT | IO_DIRECT | IO_RANGELOCKED,
-	    p->active_cred, p->file_cred, resid, p->td));
-}
-
-static int
-core_output(char *base, size_t len, off_t offset, struct coredump_params *p,
-    void *tmpbuf)
-{
-	vm_map_t map;
-	struct mount *mp;
-	size_t resid, runlen;
-	int error;
-	bool success;
-
-	KASSERT((uintptr_t)base % PAGE_SIZE == 0,
-	    ("%s: user address %p is not page-aligned", __func__, base));
-
-	if (p->comp != NULL)
-		return (compress_chunk(p, base, tmpbuf, len));
-
-	map = &p->td->td_proc->p_vmspace->vm_map;
-	for (; len > 0; base += runlen, offset += runlen, len -= runlen) {
-		/*
-		 * Attempt to page in all virtual pages in the range.  If a
-		 * virtual page is not backed by the pager, it is represented as
-		 * a hole in the file.  This can occur with zero-filled
-		 * anonymous memory or truncated files, for example.
-		 */
-		for (runlen = 0; runlen < len; runlen += PAGE_SIZE) {
-			error = vm_fault(map, (uintptr_t)base + runlen,
-			    VM_PROT_READ, VM_FAULT_NOFILL, NULL);
-			if (runlen == 0)
-				success = error == KERN_SUCCESS;
-			else if ((error == KERN_SUCCESS) != success)
-				break;
-		}
-
-		if (success) {
-			error = core_write(p, base, runlen, offset,
-			    UIO_USERSPACE, &resid);
-			if (error != 0) {
-				if (error != EFAULT)
-					break;
-
-				/*
-				 * EFAULT may be returned if the user mapping
-				 * could not be accessed, e.g., because a mapped
-				 * file has been truncated.  Skip the page if no
-				 * progress was made, to protect against a
-				 * hypothetical scenario where vm_fault() was
-				 * successful but core_write() returns EFAULT
-				 * anyway.
-				 */
-				runlen -= resid;
-				if (runlen == 0) {
-					success = false;
-					runlen = PAGE_SIZE;
-				}
-			}
-		}
-		if (!success) {
-			error = vn_start_write(p->vp, &mp, V_WAIT);
-			if (error != 0)
-				break;
-			vn_lock(p->vp, LK_EXCLUSIVE | LK_RETRY);
-			error = vn_truncate_locked(p->vp, offset + runlen,
-			    false, p->td->td_ucred);
-			VOP_UNLOCK(p->vp);
-			vn_finished_write(mp);
-			if (error != 0)
-				break;
-		}
-	}
-	return (error);
-}
-
-/*
- * Drain into a core file.
- */
-static int
-sbuf_drain_core_output(void *arg, const char *data, int len)
-{
-	struct coredump_params *p;
-	int error, locked;
-
-	p = (struct coredump_params *)arg;
-
-	/*
-	 * Some kern_proc out routines that print to this sbuf may
-	 * call us with the process lock held. Draining with the
-	 * non-sleepable lock held is unsafe. The lock is needed for
-	 * those routines when dumping a live process. In our case we
-	 * can safely release the lock before draining and acquire
-	 * again after.
-	 */
-	locked = PROC_LOCKED(p->td->td_proc);
-	if (locked)
-		PROC_UNLOCK(p->td->td_proc);
-	if (p->comp != NULL)
-		error = compressor_write(p->comp, __DECONST(char *, data), len);
-	else
-		error = core_write(p, __DECONST(void *, data), len, p->offset,
-		    UIO_SYSSPACE, NULL);
-	if (locked)
-		PROC_LOCK(p->td->td_proc);
-	if (error != 0)
-		return (-error);
-	p->offset += len;
-	return (len);
-}
-
 int
 __elfN(coredump)(struct thread *td, struct vnode *vp, off_t limit, int flags)
 {
 	struct ucred *cred = td->td_ucred;
-	int error = 0;
+	int compm, error = 0;
 	struct sseg_closure seginfo;
 	struct note_info_list notelst;
 	struct coredump_params params;
@@ -1669,7 +1510,7 @@ __elfN(coredump)(struct thread *td, struct vnode *vp, off_t limit, int flags)
 	/* Size the program segments. */
 	seginfo.count = 0;
 	seginfo.size = 0;
-	each_dumpable_segment(td, cb_size_segment, &seginfo);
+	each_dumpable_segment(td, cb_size_segment, &seginfo, flags);
 
 	/*
 	 * Collect info about the core file header area.
@@ -1705,9 +1546,13 @@ __elfN(coredump)(struct thread *td, struct vnode *vp, off_t limit, int flags)
 	}
 
 	/* Create a compression stream if necessary. */
-	if (compress_user_cores != 0) {
+	compm = compress_user_cores;
+	if ((flags & (SVC_PT_COREDUMP | SVC_NOCOMPRESS)) == SVC_PT_COREDUMP &&
+	    compm == 0)
+		compm = COMPRESS_GZIP;
+	if (compm != 0) {
 		params.comp = compressor_init(core_compressed_write,
-		    compress_user_cores, CORE_BUF_SIZE,
+		    compm, CORE_BUF_SIZE,
 		    compress_user_cores_level, &params);
 		if (params.comp == NULL) {
 			error = EFAULT;
@@ -1722,7 +1567,7 @@ __elfN(coredump)(struct thread *td, struct vnode *vp, off_t limit, int flags)
 	 */
 	hdr = malloc(hdrsize, M_TEMP, M_WAITOK);
 	error = __elfN(corehdr)(&params, seginfo.count, hdr, hdrsize, &notelst,
-	    notesz);
+	    notesz, flags);
 
 	/* Write the contents of all of the writable segments. */
 	if (error == 0) {
@@ -1806,7 +1651,8 @@ cb_size_segment(vm_map_entry_t entry, void *closure)
  * caller-supplied data.
  */
 static void
-each_dumpable_segment(struct thread *td, segment_callback func, void *closure)
+each_dumpable_segment(struct thread *td, segment_callback func, void *closure,
+    int flags)
 {
 	struct proc *p = td->td_proc;
 	vm_map_t map = &p->p_vmspace->vm_map;
@@ -1824,12 +1670,15 @@ each_dumpable_segment(struct thread *td, segment_callback func, void *closure)
 		 * are marked MAP_ENTRY_NOCOREDUMP now so we no longer
 		 * need to arbitrarily ignore such segments.
 		 */
-		if (elf_legacy_coredump) {
-			if ((entry->protection & VM_PROT_RW) != VM_PROT_RW)
-				continue;
-		} else {
-			if ((entry->protection & VM_PROT_ALL) == 0)
-				continue;
+		if ((flags & SVC_ALL) == 0) {
+			if (elf_legacy_coredump) {
+				if ((entry->protection & VM_PROT_RW) !=
+				    VM_PROT_RW)
+					continue;
+			} else {
+				if ((entry->protection & VM_PROT_ALL) == 0)
+					continue;
+			}
 		}
 
 		/*
@@ -1838,9 +1687,11 @@ each_dumpable_segment(struct thread *td, segment_callback func, void *closure)
 		 * madvise(2).  Do not dump submaps (i.e. parts of the
 		 * kernel map).
 		 */
-		if (entry->eflags & (MAP_ENTRY_NOCOREDUMP|MAP_ENTRY_IS_SUB_MAP))
+		if ((entry->eflags & MAP_ENTRY_IS_SUB_MAP) != 0)
 			continue;
-
+		if ((entry->eflags & MAP_ENTRY_NOCOREDUMP) != 0 &&
+		    (flags & SVC_ALL) == 0)
+			continue;
 		if ((object = entry->object.vm_object) == NULL)
 			continue;
 
@@ -1867,7 +1718,8 @@ each_dumpable_segment(struct thread *td, segment_callback func, void *closure)
  */
 static int
 __elfN(corehdr)(struct coredump_params *p, int numsegs, void *hdr,
-    size_t hdrsize, struct note_info_list *notelst, size_t notesz)
+    size_t hdrsize, struct note_info_list *notelst, size_t notesz,
+    int flags)
 {
 	struct note_info *ninfo;
 	struct sbuf *sb;
@@ -1875,7 +1727,7 @@ __elfN(corehdr)(struct coredump_params *p, int numsegs, void *hdr,
 
 	/* Fill in the header. */
 	bzero(hdr, hdrsize);
-	__elfN(puthdr)(p->td, hdr, hdrsize, numsegs, notesz);
+	__elfN(puthdr)(p->td, hdr, hdrsize, numsegs, notesz, flags);
 
 	sb = sbuf_new(NULL, NULL, CORE_BUF_SIZE, SBUF_FIXEDLEN);
 	sbuf_set_drain(sb, sbuf_drain_core_output, p);
@@ -1953,7 +1805,7 @@ __elfN(prepare_notes)(struct thread *td, struct note_info_list *list,
 
 static void
 __elfN(puthdr)(struct thread *td, void *hdr, size_t hdrsize, int numsegs,
-    size_t notesz)
+    size_t notesz, int flags)
 {
 	Elf_Ehdr *ehdr;
 	Elf_Phdr *phdr;
@@ -2032,7 +1884,7 @@ __elfN(puthdr)(struct thread *td, void *hdr, size_t hdrsize, int numsegs,
 	/* All the writable segments from the program. */
 	phc.phdr = phdr;
 	phc.offset = round_page(hdrsize + notesz);
-	each_dumpable_segment(td, cb_put_phdr, &phc);
+	each_dumpable_segment(td, cb_put_phdr, &phc, flags);
 }
 
 static size_t
@@ -2736,6 +2588,7 @@ note_fctl_cb(const Elf_Note *note, void *arg0, boolean_t *res)
 	desc = (const Elf32_Word *)p;
 	*arg->has_fctl0 = TRUE;
 	*arg->fctl0 = desc[0];
+	*res = TRUE;
 	return (TRUE);
 }
 

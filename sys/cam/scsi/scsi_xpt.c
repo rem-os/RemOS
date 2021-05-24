@@ -1210,8 +1210,6 @@ out:
 
 			if (periph_qual == SID_QUAL_LU_CONNECTED ||
 			    periph_qual == SID_QUAL_LU_OFFLINE) {
-				u_int8_t len;
-
 				/*
 				 * We conservatively request only
 				 * SHORT_INQUIRY_LEN bytes of inquiry
@@ -1222,11 +1220,9 @@ out:
 				 * the amount of information the device
 				 * is willing to give.
 				 */
-				len = inq_buf->additional_length
-				    + offsetof(struct scsi_inquiry_data,
-                                               additional_length) + 1;
 				if (softc->action == PROBE_INQUIRY
-				    && len > SHORT_INQUIRY_LENGTH) {
+				    && SID_ADDITIONAL_LENGTH(inq_buf)
+				    > SHORT_INQUIRY_LENGTH) {
 					PROBE_SET_ACTION(softc, PROBE_FULL_INQUIRY);
 					xpt_release_ccb(done_ccb);
 					xpt_schedule(periph, priority);
@@ -2629,6 +2625,21 @@ static void
 scsi_action(union ccb *start_ccb)
 {
 
+	if (start_ccb->ccb_h.func_code != XPT_SCSI_IO) {
+#ifdef notyet
+		KASSERT((start_ccb->ccb_h.alloc_flags & CAM_CCB_FROM_UMA) == 0,
+		    ("%s: ccb %p, func_code %#x should not be allocated "
+		    "from UMA zone\n",
+		    __func__, start_ccb, start_ccb->ccb_h.func_code));
+#else
+		if ((start_ccb->ccb_h.alloc_flags & CAM_CCB_FROM_UMA) != 0) {
+			printf("%s: ccb %p, func_code %#x should not be allocated "
+			    "from UMA zone\n",
+			    __func__, start_ccb, start_ccb->ccb_h.func_code);
+		}
+#endif
+	}
+
 	switch (start_ccb->ccb_h.func_code) {
 	case XPT_SET_TRAN_SETTINGS:
 	{
@@ -3151,6 +3162,7 @@ scsi_announce_periph(struct cam_periph *periph)
 	struct	ccb_trans_settings cts;
 	u_int speed, freq, mb;
 
+	memset(&cts, 0, sizeof(cts));
 	_scsi_announce_periph(periph, &speed, &freq, &cts);
 	if (cam_ccb_status((union ccb *)&cts) != CAM_REQ_CMP)
 		return;

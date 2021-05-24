@@ -120,6 +120,7 @@ SUBDIR=	\
 	fdc \
 	fdescfs \
 	${_ffec} \
+	${_fib_dxr} \
 	filemon \
 	firewire \
 	firmware \
@@ -330,6 +331,7 @@ SUBDIR=	\
 	${_sctp} \
 	sdhci \
 	${_sdhci_acpi} \
+	${_sdhci_fdt} \
 	sdhci_pci \
 	sdio \
 	sem \
@@ -474,6 +476,7 @@ _ipfilter=	ipfilter
 
 .if ${MK_INET_SUPPORT} != "no" && ${KERN_OPTS:MFIB_ALGO}
 _dpdk_lpm4=	dpdk_lpm4
+_fib_dxr=	fib_dxr
 .endif
 
 .if ${MK_INET6_SUPPORT} != "no" && ${KERN_OPTS:MFIB_ALGO}
@@ -612,6 +615,10 @@ _armv8crypto=	armv8crypto
 _dwwdt=		dwwdt
 _em=		em
 _rockchip=	rockchip
+.endif
+
+.if ${MACHINE_CPUARCH} == "aarch64" || ${MACHINE_CPUARCH} == "arm"
+_sdhci_fdt=	sdhci_fdt
 .endif
 
 .if ${MACHINE_CPUARCH} == "i386" || ${MACHINE_CPUARCH} == "amd64"

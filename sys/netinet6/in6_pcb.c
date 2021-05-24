@@ -146,13 +146,10 @@ in6_pcbbind(struct inpcb *inp, struct sockaddr *nam,
 			return (error);
 	} else {
 		sin6 = (struct sockaddr_in6 *)nam;
-		if (nam->sa_len != sizeof(*sin6))
-			return (EINVAL);
-		/*
-		 * family check.
-		 */
-		if (nam->sa_family != AF_INET6)
-			return (EAFNOSUPPORT);
+		KASSERT(sin6->sin6_family == AF_INET6,
+		    ("%s: invalid address family for %p", __func__, sin6));
+		KASSERT(sin6->sin6_len == sizeof(*sin6),
+		    ("%s: invalid address length for %p", __func__, sin6));
 
 		if ((error = sa6_embedscope(sin6, V_ip6_use_defzone)) != 0)
 			return(error);
@@ -345,10 +342,9 @@ in6_pcbbind(struct inpcb *inp, struct sockaddr *nam,
  *   have forced minor changes in every protocol).
  */
 static int
-in6_pcbladdr(struct inpcb *inp, struct sockaddr *nam,
+in6_pcbladdr(struct inpcb *inp, struct sockaddr_in6 *sin6,
     struct in6_addr *plocal_addr6)
 {
-	struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)nam;
 	int error = 0;
 	int scope_ambiguous = 0;
 	struct in6_addr in6a;
@@ -357,10 +353,6 @@ in6_pcbladdr(struct inpcb *inp, struct sockaddr *nam,
 	INP_WLOCK_ASSERT(inp);
 	INP_HASH_WLOCK_ASSERT(inp->inp_pcbinfo);	/* XXXRW: why? */
 
-	if (nam->sa_len != sizeof (*sin6))
-		return (EINVAL);
-	if (sin6->sin6_family != AF_INET6)
-		return (EAFNOSUPPORT);
 	if (sin6->sin6_port == 0)
 		return (EADDRNOTAVAIL);
 
@@ -421,6 +413,11 @@ in6_pcbconnect_mbuf(struct inpcb *inp, struct sockaddr *nam,
 	struct sockaddr_in6 laddr6;
 	int error;
 
+	KASSERT(sin6->sin6_family == AF_INET6,
+	    ("%s: invalid address family for %p", __func__, sin6));
+	KASSERT(sin6->sin6_len == sizeof(*sin6),
+	    ("%s: invalid address length for %p", __func__, sin6));
+
 	bzero(&laddr6, sizeof(laddr6));
 	laddr6.sin6_family = AF_INET6;
 
@@ -442,7 +439,7 @@ in6_pcbconnect_mbuf(struct inpcb *inp, struct sockaddr *nam,
 	 * Call inner routine, to assign local interface address.
 	 * in6_pcbladdr() may automatically fill in sin6_scope_id.
 	 */
-	if ((error = in6_pcbladdr(inp, nam, &laddr6.sin6_addr)) != 0)
+	if ((error = in6_pcbladdr(inp, sin6, &laddr6.sin6_addr)) != 0)
 		return (error);
 
 	if (in6_pcblookup_hash_locked(pcbinfo, &sin6->sin6_addr,
@@ -1299,12 +1296,6 @@ in6_pcblookup_hash(struct inpcbinfo *pcbinfo, struct in6_addr *faddr,
 			INP_WLOCK(inp);
 		} else if (lookupflags & INPLOOKUP_RLOCKPCB) {
 			INP_RLOCK(inp);
-		} else if (lookupflags & INPLOOKUP_RLOCKLISTEN) {
-			if (inp->inp_socket != NULL &&
-			    SOLISTENING(inp->inp_socket))
-				INP_RLOCK(inp);
-			else
-				INP_WLOCK(inp);
 		} else
 			panic("%s: locking bug", __func__);
 		if (__predict_false(inp->inp_flags2 & INP_FREED)) {
@@ -1331,8 +1322,8 @@ in6_pcblookup(struct inpcbinfo *pcbinfo, struct in6_addr *faddr, u_int fport,
 
 	KASSERT((lookupflags & ~INPLOOKUP_MASK) == 0,
 	    ("%s: invalid lookup flags %d", __func__, lookupflags));
-	KASSERT((lookupflags & (INPLOOKUP_RLOCKPCB | INPLOOKUP_WLOCKPCB |
-	    INPLOOKUP_RLOCKLISTEN)) != 0, ("%s: LOCKPCB not set", __func__));
+	KASSERT((lookupflags & (INPLOOKUP_RLOCKPCB | INPLOOKUP_WLOCKPCB)) != 0,
+	    ("%s: LOCKPCB not set", __func__));
 
 	/*
 	 * When not using RSS, use connection groups in preference to the
@@ -1367,8 +1358,7 @@ in6_pcblookup_mbuf(struct inpcbinfo *pcbinfo, struct in6_addr *faddr,
 
 	KASSERT((lookupflags & ~INPLOOKUP_MASK) == 0,
 	    ("%s: invalid lookup flags %d", __func__, lookupflags));
-	KASSERT((lookupflags & (INPLOOKUP_RLOCKPCB | INPLOOKUP_WLOCKPCB |
-	    INPLOOKUP_RLOCKLISTEN)) != 0,
+	KASSERT((lookupflags & (INPLOOKUP_RLOCKPCB | INPLOOKUP_WLOCKPCB)) != 0,
 	    ("%s: LOCKPCB not set", __func__));
 
 #ifdef PCBGROUP

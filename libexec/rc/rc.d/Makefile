@@ -11,7 +11,6 @@ CONFS=	DAEMON \
 	LOGIN \
 	NETWORKING \
 	SERVERS \
-	addswap \
 	adjkerntz \
 	bgfsck \
 	${_blacklistd} \
@@ -105,6 +104,7 @@ CONFS=	DAEMON \
 	swap \
 	swaplate \
 	sysctl \
+	sysctl_lastload \
 	syslogd \
 	sysvipc \
 	tmp \

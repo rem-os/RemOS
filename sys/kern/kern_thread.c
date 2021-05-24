@@ -96,11 +96,11 @@ _Static_assert(offsetof(struct proc, p_flag) == 0xb8,
     "struct proc KBI p_flag");
 _Static_assert(offsetof(struct proc, p_pid) == 0xc4,
     "struct proc KBI p_pid");
-_Static_assert(offsetof(struct proc, p_filemon) == 0x3c0,
+_Static_assert(offsetof(struct proc, p_filemon) == 0x3b8,
     "struct proc KBI p_filemon");
-_Static_assert(offsetof(struct proc, p_comm) == 0x3d8,
+_Static_assert(offsetof(struct proc, p_comm) == 0x3d0,
     "struct proc KBI p_comm");
-_Static_assert(offsetof(struct proc, p_emuldata) == 0x4b8,
+_Static_assert(offsetof(struct proc, p_emuldata) == 0x4b0,
     "struct proc KBI p_emuldata");
 #endif
 #ifdef __i386__
@@ -116,11 +116,11 @@ _Static_assert(offsetof(struct proc, p_flag) == 0x6c,
     "struct proc KBI p_flag");
 _Static_assert(offsetof(struct proc, p_pid) == 0x78,
     "struct proc KBI p_pid");
-_Static_assert(offsetof(struct proc, p_filemon) == 0x26c,
+_Static_assert(offsetof(struct proc, p_filemon) == 0x268,
     "struct proc KBI p_filemon");
-_Static_assert(offsetof(struct proc, p_comm) == 0x280,
+_Static_assert(offsetof(struct proc, p_comm) == 0x27c,
     "struct proc KBI p_comm");
-_Static_assert(offsetof(struct proc, p_emuldata) == 0x30c,
+_Static_assert(offsetof(struct proc, p_emuldata) == 0x308,
     "struct proc KBI p_emuldata");
 #endif
 
@@ -1512,6 +1512,31 @@ thread_unsuspend_one(struct thread *td, struct proc *p, bool boundary)
 		}
 	}
 	return (setrunnable(td, 0));
+}
+
+void
+thread_run_flash(struct thread *td)
+{
+	struct proc *p;
+
+	p = td->td_proc;
+	PROC_LOCK_ASSERT(p, MA_OWNED);
+
+	if (TD_ON_SLEEPQ(td))
+		sleepq_remove_nested(td);
+	else
+		thread_lock(td);
+
+	THREAD_LOCK_ASSERT(td, MA_OWNED);
+	KASSERT(TD_IS_SUSPENDED(td), ("Thread not suspended"));
+
+	TD_CLR_SUSPENDED(td);
+	PROC_SLOCK(p);
+	MPASS(p->p_suspcount > 0);
+	p->p_suspcount--;
+	PROC_SUNLOCK(p);
+	if (setrunnable(td, 0))
+		kick_proc0();
 }
 
 /*

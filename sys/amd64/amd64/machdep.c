@@ -187,13 +187,6 @@ struct init_ops init_ops = {
 	.early_clock_source_init =	i8254_init,
 	.early_delay =			i8254_delay,
 	.parse_memmap =			native_parse_memmap,
-#ifdef SMP
-	.mp_bootaddress =		mp_bootaddress,
-	.start_all_aps =		native_start_all_aps,
-#endif
-#ifdef DEV_PCI
-	.msi_init =			msi_init,
-#endif
 };
 
 /*
@@ -1107,7 +1100,7 @@ add_efi_map_entries(struct efi_map_header *efihdr, vm_paddr_t *physmap,
 				type = types[p->md_type];
 			else
 				type = "<INVALID>";
-			printf("%23s %012lx %12p %08lx ", type, p->md_phys,
+			printf("%23s %012lx %012lx %08lx ", type, p->md_phys,
 			    p->md_virt, p->md_pages);
 			if (p->md_attr & EFI_MD_ATTR_UC)
 				printf("UC ");
@@ -1283,8 +1276,9 @@ getmemsize(caddr_t kmdp, u_int64_t first)
 	 * is configured to support APs and APs for the system start
 	 * in real mode mode (e.g. SMP bare metal).
 	 */
-	if (init_ops.mp_bootaddress)
-		init_ops.mp_bootaddress(physmap, &physmap_idx);
+#ifdef SMP
+	mp_bootaddress(physmap, &physmap_idx);
+#endif
 
 	/* call pmap initialization to make new kernel address space */
 	pmap_bootstrap(&first);
