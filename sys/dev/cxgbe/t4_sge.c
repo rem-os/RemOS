@@ -3938,12 +3938,7 @@ alloc_rxq(struct vi_info *vi, struct sge_rxq *rxq, int idx, int intr_idx,
 		if (rc != 0)
 			return (rc);
 		MPASS(rxq->lro.ifp == ifp);	/* also indicates LRO init'ed */
-
-		if (ifp->if_capenable & IFCAP_LRO)
-			rxq->iq.flags |= IQ_LRO_ENABLED;
 #endif
-		if (ifp->if_capenable & IFCAP_HWRXTSTMP)
-			rxq->iq.flags |= IQ_RX_TIMESTAMP;
 		rxq->ifp = ifp;
 
 		snprintf(name, sizeof(name), "%d", idx);
@@ -3953,6 +3948,12 @@ alloc_rxq(struct vi_info *vi, struct sge_rxq *rxq, int idx, int intr_idx,
 
 		init_iq(&rxq->iq, sc, vi->tmr_idx, vi->pktc_idx, vi->qsize_rxq,
 		    intr_idx, tnl_cong(vi->pi, cong_drop));
+#if defined(INET) || defined(INET6)
+		if (ifp->if_capenable & IFCAP_LRO)
+			rxq->iq.flags |= IQ_LRO_ENABLED;
+#endif
+		if (ifp->if_capenable & IFCAP_HWRXTSTMP)
+			rxq->iq.flags |= IQ_RX_TIMESTAMP;
 		snprintf(name, sizeof(name), "%s rxq%d-fl",
 		    device_get_nameunit(vi->dev), idx);
 		init_fl(sc, &rxq->fl, vi->qsize_rxq / 8, maxp, name);
@@ -4345,7 +4346,8 @@ static void
 free_eq(struct adapter *sc, struct sge_eq *eq)
 {
 	MPASS(eq->flags & EQ_SW_ALLOCATED);
-	MPASS(eq->pidx == eq->cidx);
+	if (eq->type == EQ_ETH)
+		MPASS(eq->pidx == eq->cidx);
 
 	free_ring(sc, eq->desc_tag, eq->desc_map, eq->ba, eq->desc);
 	mtx_destroy(&eq->eq_lock);
@@ -4498,6 +4500,8 @@ free_wrq(struct adapter *sc, struct sge_wrq *wrq)
 {
 	free_eq(sc, &wrq->eq);
 	MPASS(wrq->nwr_pending == 0);
+	MPASS(TAILQ_EMPTY(&wrq->incomplete_wrs));
+	MPASS(STAILQ_EMPTY(&wrq->wr_list));
 	bzero(wrq, sizeof(*wrq));
 }
 

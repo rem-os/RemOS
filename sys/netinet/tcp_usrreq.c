@@ -321,8 +321,15 @@ tcp_usr_bind(struct socket *so, struct sockaddr *nam, struct thread *td)
 	struct sockaddr_in *sinp;
 
 	sinp = (struct sockaddr_in *)nam;
-	if (nam->sa_family != AF_INET)
-		return (EAFNOSUPPORT);
+	if (nam->sa_family != AF_INET) {
+		/*
+		 * Preserve compatibility with old programs.
+		 */
+		if (nam->sa_family != AF_UNSPEC ||
+		    sinp->sin_addr.s_addr != INADDR_ANY)
+			return (EAFNOSUPPORT);
+		nam->sa_family = AF_INET;
+	}
 	if (nam->sa_len != sizeof(*sinp))
 		return (EINVAL);
 
@@ -1818,11 +1825,14 @@ tcp_ctloutput(struct socket *so, struct sockopt *sopt)
 		 * new one already.
 		 */
 		if (tp->t_fb->tfb_tcp_fb_fini) {
+			struct epoch_tracker et;
 			/*
 			 * Tell the stack to cleanup with 0 i.e.
 			 * the tcb is not going away.
 			 */
+			NET_EPOCH_ENTER(et);
 			(*tp->t_fb->tfb_tcp_fb_fini)(tp, 0);
+			NET_EPOCH_EXIT(et);
 		}
 #ifdef TCPHPTS
 		/* Assure that we are not on any hpts */
