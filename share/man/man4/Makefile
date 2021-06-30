@@ -47,7 +47,6 @@ MAN=	aac.4 \
 	${_amdtemp.4} \
 	${_bxe.4} \
 	amr.4 \
-	an.4 \
 	${_aout.4} \
 	${_apic.4} \
 	arcmsr.4 \
@@ -618,7 +617,6 @@ MLINKS+=altera_sdcard.4 altera_sdcardc.4
 MLINKS+=altq.4 ALTQ.4
 MLINKS+=ath.4 if_ath.4
 MLINKS+=ath_pci.4 if_ath_pci.4
-MLINKS+=an.4 if_an.4
 MLINKS+=aue.4 if_aue.4
 MLINKS+=axe.4 if_axe.4
 MLINKS+=bce.4 if_bce.4
@@ -897,9 +895,7 @@ _cgem.4=	cgem.4
 MLINKS+=cgem.4 if_cgem.4
 .endif
 
-.if empty(MAN_ARCH)
-__arches=	${MACHINE} ${MACHINE_ARCH} ${MACHINE_CPUARCH}
-.elif ${MAN_ARCH} == "all"
+.if empty(MAN_ARCH) || ${MAN_ARCH} == "all"
 __arches=	${:!/bin/sh -c "/bin/ls -d ${.CURDIR}/man4.*"!:E}
 .else
 __arches=	${MAN_ARCH}

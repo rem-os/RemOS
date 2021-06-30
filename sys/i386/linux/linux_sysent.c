@@ -185,7 +185,7 @@ struct sysent linux_sysent[] = {
 	{ .sy_narg = AS(linux_getresuid16_args), .sy_call = (sy_call_t *)linux_getresuid16, .sy_auevent = AUE_GETRESUID, .sy_flags = 0, .sy_thrcnt = SY_THR_STATIC },	/* 165 = linux_getresuid16 */
 	{ .sy_narg = 0, .sy_call = (sy_call_t *)linux_vm86, .sy_auevent = AUE_NULL, .sy_flags = 0, .sy_thrcnt = SY_THR_STATIC },	/* 166 = linux_vm86 */
 	{ .sy_narg = 0, .sy_call = (sy_call_t *)nosys, .sy_auevent = AUE_NULL, .sy_flags = 0, .sy_thrcnt = SY_THR_ABSENT },			/* 167 = query_module */
-	{ .sy_narg = AS(poll_args), .sy_call = (sy_call_t *)sys_poll, .sy_auevent = AUE_POLL, .sy_flags = 0, .sy_thrcnt = SY_THR_STATIC },	/* 168 = poll */
+	{ .sy_narg = AS(linux_poll_args), .sy_call = (sy_call_t *)linux_poll, .sy_auevent = AUE_POLL, .sy_flags = 0, .sy_thrcnt = SY_THR_STATIC },	/* 168 = linux_poll */
 	{ .sy_narg = 0, .sy_call = (sy_call_t *)nosys, .sy_auevent = AUE_NULL, .sy_flags = 0, .sy_thrcnt = SY_THR_ABSENT },			/* 169 = nfsservctl */
 	{ .sy_narg = AS(linux_setresgid16_args), .sy_call = (sy_call_t *)linux_setresgid16, .sy_auevent = AUE_SETRESGID, .sy_flags = 0, .sy_thrcnt = SY_THR_STATIC },	/* 170 = linux_setresgid16 */
 	{ .sy_narg = AS(linux_getresgid16_args), .sy_call = (sy_call_t *)linux_getresgid16, .sy_auevent = AUE_GETRESGID, .sy_flags = 0, .sy_thrcnt = SY_THR_STATIC },	/* 171 = linux_getresgid16 */
@@ -430,16 +430,16 @@ struct sysent linux_sysent[] = {
 	{ .sy_narg = 0, .sy_call = (sy_call_t *)linux_timerfd_gettime64, .sy_auevent = AUE_NULL, .sy_flags = 0, .sy_thrcnt = SY_THR_STATIC },	/* 410 = linux_timerfd_gettime64 */
 	{ .sy_narg = 0, .sy_call = (sy_call_t *)linux_timerfd_settime64, .sy_auevent = AUE_NULL, .sy_flags = 0, .sy_thrcnt = SY_THR_STATIC },	/* 411 = linux_timerfd_settime64 */
 	{ .sy_narg = AS(linux_utimensat_time64_args), .sy_call = (sy_call_t *)linux_utimensat_time64, .sy_auevent = AUE_NULL, .sy_flags = 0, .sy_thrcnt = SY_THR_STATIC },	/* 412 = linux_utimensat_time64 */
-	{ .sy_narg = 0, .sy_call = (sy_call_t *)linux_pselect6_time64, .sy_auevent = AUE_NULL, .sy_flags = 0, .sy_thrcnt = SY_THR_STATIC },	/* 413 = linux_pselect6_time64 */
-	{ .sy_narg = 0, .sy_call = (sy_call_t *)linux_ppoll_time64, .sy_auevent = AUE_NULL, .sy_flags = 0, .sy_thrcnt = SY_THR_STATIC },	/* 414 = linux_ppoll_time64 */
+	{ .sy_narg = AS(linux_pselect6_time64_args), .sy_call = (sy_call_t *)linux_pselect6_time64, .sy_auevent = AUE_NULL, .sy_flags = 0, .sy_thrcnt = SY_THR_STATIC },	/* 413 = linux_pselect6_time64 */
+	{ .sy_narg = AS(linux_ppoll_time64_args), .sy_call = (sy_call_t *)linux_ppoll_time64, .sy_auevent = AUE_NULL, .sy_flags = 0, .sy_thrcnt = SY_THR_STATIC },	/* 414 = linux_ppoll_time64 */
 	{ .sy_narg = 0, .sy_call = (sy_call_t *)nosys, .sy_auevent = AUE_NULL, .sy_flags = 0, .sy_thrcnt = SY_THR_ABSENT },			/* 415 = nosys */
 	{ .sy_narg = 0, .sy_call = (sy_call_t *)linux_io_pgetevents_time64, .sy_auevent = AUE_NULL, .sy_flags = 0, .sy_thrcnt = SY_THR_STATIC },	/* 416 = linux_io_pgetevents_time64 */
 	{ .sy_narg = 0, .sy_call = (sy_call_t *)linux_recvmmsg_time64, .sy_auevent = AUE_NULL, .sy_flags = 0, .sy_thrcnt = SY_THR_STATIC },	/* 417 = linux_recvmmsg_time64 */
 	{ .sy_narg = 0, .sy_call = (sy_call_t *)linux_mq_timedsend_time64, .sy_auevent = AUE_NULL, .sy_flags = 0, .sy_thrcnt = SY_THR_STATIC },	/* 418 = linux_mq_timedsend_time64 */
 	{ .sy_narg = 0, .sy_call = (sy_call_t *)linux_mq_timedreceive_time64, .sy_auevent = AUE_NULL, .sy_flags = 0, .sy_thrcnt = SY_THR_STATIC },	/* 419 = linux_mq_timedreceive_time64 */
 	{ .sy_narg = 0, .sy_call = (sy_call_t *)linux_semtimedop_time64, .sy_auevent = AUE_NULL, .sy_flags = 0, .sy_thrcnt = SY_THR_STATIC },	/* 420 = linux_semtimedop_time64 */
-	{ .sy_narg = 0, .sy_call = (sy_call_t *)linux_rt_sigtimedwait_time64, .sy_auevent = AUE_NULL, .sy_flags = 0, .sy_thrcnt = SY_THR_STATIC },	/* 421 = linux_rt_sigtimedwait_time64 */
-	{ .sy_narg = 0, .sy_call = (sy_call_t *)linux_futex_time64, .sy_auevent = AUE_NULL, .sy_flags = 0, .sy_thrcnt = SY_THR_STATIC },	/* 422 = linux_futex_time64 */
+	{ .sy_narg = AS(linux_rt_sigtimedwait_time64_args), .sy_call = (sy_call_t *)linux_rt_sigtimedwait_time64, .sy_auevent = AUE_NULL, .sy_flags = 0, .sy_thrcnt = SY_THR_STATIC },	/* 421 = linux_rt_sigtimedwait_time64 */
+	{ .sy_narg = AS(linux_sys_futex_time64_args), .sy_call = (sy_call_t *)linux_sys_futex_time64, .sy_auevent = AUE_NULL, .sy_flags = 0, .sy_thrcnt = SY_THR_STATIC },	/* 422 = linux_sys_futex_time64 */
 	{ .sy_narg = 0, .sy_call = (sy_call_t *)linux_sched_rr_get_interval_time64, .sy_auevent = AUE_NULL, .sy_flags = 0, .sy_thrcnt = SY_THR_STATIC },	/* 423 = linux_sched_rr_get_interval_time64 */
 	{ .sy_narg = AS(linux_pidfd_send_signal_args), .sy_call = (sy_call_t *)linux_pidfd_send_signal, .sy_auevent = AUE_NULL, .sy_flags = 0, .sy_thrcnt = SY_THR_STATIC },	/* 424 = linux_pidfd_send_signal */
 	{ .sy_narg = 0, .sy_call = (sy_call_t *)linux_io_uring_setup, .sy_auevent = AUE_NULL, .sy_flags = 0, .sy_thrcnt = SY_THR_STATIC },	/* 425 = linux_io_uring_setup */

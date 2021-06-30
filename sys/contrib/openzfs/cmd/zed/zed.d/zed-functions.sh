@@ -126,7 +126,7 @@ zed_lock()
 
     # Obtain a lock on the file bound to the given file descriptor.
     #
-    eval "exec ${fd}> '${lockfile}'"
+    eval "exec ${fd}>> '${lockfile}'"
     if ! err="$(flock --exclusive "${fd}" 2>&1)"; then
         zed_log_err "failed to lock \"${lockfile}\": ${err}"
     fi
@@ -267,7 +267,7 @@ zed_notify_email()
                 -e "s/@SUBJECT@/${subject}/g")"
 
     # shellcheck disable=SC2086
-    ${ZED_EMAIL_PROG} ${ZED_EMAIL_OPTS} < "${pathname}" >/dev/null 2>&1
+    eval ${ZED_EMAIL_PROG} ${ZED_EMAIL_OPTS} < "${pathname}" >/dev/null 2>&1
     rv=$?
     if [ "${rv}" -ne 0 ]; then
         zed_log_err "$(basename "${ZED_EMAIL_PROG}") exit=${rv}"

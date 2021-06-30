@@ -50,6 +50,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/msgbuf.h>
 #include <sys/mutex.h>
 #include <sys/namei.h>
+#include <sys/poll.h>
 #include <sys/priv.h>
 #include <sys/proc.h>
 #include <sys/procctl.h>
@@ -89,6 +90,7 @@ __FBSDID("$FreeBSD$");
 #include <machine/../linux/linux_proto.h>
 #endif
 
+#include <compat/linux/linux_common.h>
 #include <compat/linux/linux_dtrace.h>
 #include <compat/linux/linux_file.h>
 #include <compat/linux/linux_mib.h>
@@ -138,6 +140,16 @@ static int	linux_utimensat_lts64_to_ts(struct l_timespec64 *,
 #endif
 static int	linux_common_utimensat(struct thread *, int,
 			const char *, struct timespec *, int);
+static int	linux_common_pselect6(struct thread *, l_int,
+			l_fd_set *, l_fd_set *, l_fd_set *,
+			struct timespec *, l_uintptr_t *);
+static int	linux_common_ppoll(struct thread *, struct pollfd *,
+			uint32_t, struct timespec *, l_sigset_t *,
+			l_size_t);
+static int	linux_pollin(struct thread *, struct pollfd *,
+			struct pollfd *, u_int);
+static int	linux_pollout(struct thread *, struct pollfd *,
+			struct pollfd *, u_int);
 
 int
 linux_sysinfo(struct thread *td, struct linux_sysinfo_args *args)
@@ -709,8 +721,10 @@ linux_newuname(struct thread *td, struct linux_newuname_args *args)
 	 * to remain "i686", though.
 	 */
 	strlcpy(utsname.machine, "x86_64", LINUX_MAX_UTSNAME);
-#else
-	strlcpy(utsname.machine, linux_kplatform, LINUX_MAX_UTSNAME);
+#elif defined(__aarch64__)
+	strlcpy(utsname.machine, "aarch64", LINUX_MAX_UTSNAME);
+#elif defined(__i386__)
+	strlcpy(utsname.machine, "i686", LINUX_MAX_UTSNAME);
 #endif
 
 	return (copyout(&utsname, args->buf, sizeof(utsname)));
@@ -2348,18 +2362,49 @@ linux_prlimit64(struct thread *td, struct linux_prlimit64_args *args)
 int
 linux_pselect6(struct thread *td, struct linux_pselect6_args *args)
 {
+	struct l_timespec lts;
+	struct timespec ts, *tsp;
+	int error;
+
+	if (args->tsp != NULL) {
+		error = copyin(args->tsp, &lts, sizeof(lts));
+		if (error != 0)
+			return (error);
+		error = linux_to_native_timespec(&ts, &lts);
+		if (error != 0)
+			return (error);
+		tsp = &ts;
+	} else
+		tsp = NULL;
+
+	error = linux_common_pselect6(td, args->nfds, args->readfds,
+	    args->writefds, args->exceptfds, tsp, args->sig);
+	if (error != 0)
+		return (error);
+
+	if (args->tsp != NULL) {
+		error = native_to_linux_timespec(&lts, tsp);
+		if (error == 0)
+			error = copyout(&lts, args->tsp, sizeof(lts));
+	}
+	return (error);
+}
+
+static int
+linux_common_pselect6(struct thread *td, l_int nfds, l_fd_set *readfds,
+    l_fd_set *writefds, l_fd_set *exceptfds, struct timespec *tsp,
+    l_uintptr_t *sig)
+{
 	struct timeval utv, tv0, tv1, *tvp;
 	struct l_pselect6arg lpse6;
-	struct l_timespec lts;
-	struct timespec uts;
 	l_sigset_t l_ss;
 	sigset_t *ssp;
 	sigset_t ss;
 	int error;
 
 	ssp = NULL;
-	if (args->sig != NULL) {
-		error = copyin(args->sig, &lpse6, sizeof(lpse6));
+	if (sig != NULL) {
+		error = copyin(sig, &lpse6, sizeof(lpse6));
 		if (error != 0)
 			return (error);
 		if (lpse6.ss_len != sizeof(l_ss))
@@ -2372,21 +2417,15 @@ linux_pselect6(struct thread *td, struct linux_pselect6_args *args)
 			linux_to_bsd_sigset(&l_ss, &ss);
 			ssp = &ss;
 		}
-	}
+	} else
+		ssp = NULL;
 
 	/*
 	 * Currently glibc changes nanosecond number to microsecond.
 	 * This mean losing precision but for now it is hardly seen.
 	 */
-	if (args->tsp != NULL) {
-		error = copyin(args->tsp, &lts, sizeof(lts));
-		if (error != 0)
-			return (error);
-		error = linux_to_native_timespec(&uts, &lts);
-		if (error != 0)
-			return (error);
-
-		TIMESPEC_TO_TIMEVAL(&utv, &uts);
+	if (tsp != NULL) {
+		TIMESPEC_TO_TIMEVAL(&utv, tsp);
 		if (itimerfix(&utv))
 			return (EINVAL);
 
@@ -2395,10 +2434,10 @@ linux_pselect6(struct thread *td, struct linux_pselect6_args *args)
 	} else
 		tvp = NULL;
 
-	error = kern_pselect(td, args->nfds, args->readfds, args->writefds,
-	    args->exceptfds, tvp, ssp, LINUX_NFDBITS);
+	error = kern_pselect(td, nfds, readfds, writefds,
+	    exceptfds, tvp, ssp, LINUX_NFDBITS);
 
-	if (error == 0 && args->tsp != NULL) {
+	if (error == 0 && tsp != NULL) {
 		if (td->td_retval[0] != 0) {
 			/*
 			 * Compute how much time was left of the timeout,
@@ -2414,38 +2453,52 @@ linux_pselect6(struct thread *td, struct linux_pselect6_args *args)
 				timevalclear(&utv);
 		} else
 			timevalclear(&utv);
+		TIMEVAL_TO_TIMESPEC(&utv, tsp);
+	}
+	return (error);
+}
 
-		TIMEVAL_TO_TIMESPEC(&utv, &uts);
+#if defined(__i386__) || (defined(__amd64__) && defined(COMPAT_LINUX32))
+int
+linux_pselect6_time64(struct thread *td,
+    struct linux_pselect6_time64_args *args)
+{
+	struct l_timespec64 lts;
+	struct timespec ts, *tsp;
+	int error;
 
-		error = native_to_linux_timespec(&lts, &uts);
+	if (args->tsp != NULL) {
+		error = copyin(args->tsp, &lts, sizeof(lts));
+		if (error != 0)
+			return (error);
+		error = linux_to_native_timespec64(&ts, &lts);
+		if (error != 0)
+			return (error);
+		tsp = &ts;
+	} else
+		tsp = NULL;
+
+	error = linux_common_pselect6(td, args->nfds, args->readfds,
+	    args->writefds, args->exceptfds, tsp, args->sig);
+	if (error != 0)
+		return (error);
+
+	if (args->tsp != NULL) {
+		error = native_to_linux_timespec64(&lts, tsp);
 		if (error == 0)
 			error = copyout(&lts, args->tsp, sizeof(lts));
 	}
-
 	return (error);
 }
+#endif /* __i386__ || (__amd64__ && COMPAT_LINUX32) */
 
 int
 linux_ppoll(struct thread *td, struct linux_ppoll_args *args)
 {
-	struct timespec ts0, ts1;
-	struct l_timespec lts;
 	struct timespec uts, *tsp;
-	l_sigset_t l_ss;
-	sigset_t *ssp;
-	sigset_t ss;
+	struct l_timespec lts;
 	int error;
 
-	if (args->sset != NULL) {
-		if (args->ssize != sizeof(l_ss))
-			return (EINVAL);
-		error = copyin(args->sset, &l_ss, sizeof(l_ss));
-		if (error)
-			return (error);
-		linux_to_bsd_sigset(&l_ss, &ss);
-		ssp = &ss;
-	} else
-		ssp = NULL;
 	if (args->tsp != NULL) {
 		error = copyin(args->tsp, &lts, sizeof(lts));
 		if (error)
@@ -2453,30 +2506,149 @@ linux_ppoll(struct thread *td, struct linux_ppoll_args *args)
 		error = linux_to_native_timespec(&uts, &lts);
 		if (error != 0)
 			return (error);
-
-		nanotime(&ts0);
 		tsp = &uts;
 	} else
 		tsp = NULL;
 
-	error = kern_poll(td, args->fds, args->nfds, tsp, ssp);
-
-	if (error == 0 && args->tsp != NULL) {
-		if (td->td_retval[0]) {
-			nanotime(&ts1);
-			timespecsub(&ts1, &ts0, &ts1);
-			timespecsub(&uts, &ts1, &uts);
-			if (uts.tv_sec < 0)
-				timespecclear(&uts);
-		} else
-			timespecclear(&uts);
-
-		error = native_to_linux_timespec(&lts, &uts);
+	error = linux_common_ppoll(td, args->fds, args->nfds, tsp,
+	    args->sset, args->ssize);
+	if (error != 0)
+		return (error);
+	if (tsp != NULL) {
+		error = native_to_linux_timespec(&lts, tsp);
 		if (error == 0)
 			error = copyout(&lts, args->tsp, sizeof(lts));
 	}
-
 	return (error);
+}
+
+static int
+linux_common_ppoll(struct thread *td, struct pollfd *fds, uint32_t nfds,
+    struct timespec *tsp, l_sigset_t *sset, l_size_t ssize)
+{
+	struct timespec ts0, ts1;
+	struct pollfd stackfds[32];
+	struct pollfd *kfds;
+ 	l_sigset_t l_ss;
+ 	sigset_t *ssp;
+ 	sigset_t ss;
+ 	int error;
+
+	if (kern_poll_maxfds(nfds))
+		return (EINVAL);
+	if (sset != NULL) {
+		if (ssize != sizeof(l_ss))
+			return (EINVAL);
+		error = copyin(sset, &l_ss, sizeof(l_ss));
+		if (error)
+			return (error);
+		linux_to_bsd_sigset(&l_ss, &ss);
+		ssp = &ss;
+	} else
+		ssp = NULL;
+	if (tsp != NULL)
+		nanotime(&ts0);
+
+	if (nfds > nitems(stackfds))
+		kfds = mallocarray(nfds, sizeof(*kfds), M_TEMP, M_WAITOK);
+	else
+		kfds = stackfds;
+	error = linux_pollin(td, kfds, fds, nfds);
+	if (error != 0)
+		goto out;
+
+	error = kern_poll_kfds(td, kfds, nfds, tsp, ssp);
+	if (error == 0)
+		error = linux_pollout(td, kfds, fds, nfds);
+
+	if (error == 0 && tsp != NULL) {
+		if (td->td_retval[0]) {
+			nanotime(&ts1);
+			timespecsub(&ts1, &ts0, &ts1);
+			timespecsub(tsp, &ts1, tsp);
+			if (tsp->tv_sec < 0)
+				timespecclear(tsp);
+		} else
+			timespecclear(tsp);
+	}
+
+out:
+	if (nfds > nitems(stackfds))
+		free(kfds, M_TEMP);
+	return (error);
+}
+
+#if defined(__i386__) || (defined(__amd64__) && defined(COMPAT_LINUX32))
+int
+linux_ppoll_time64(struct thread *td, struct linux_ppoll_time64_args *args)
+{
+	struct timespec uts, *tsp;
+	struct l_timespec64 lts;
+	int error;
+
+	if (args->tsp != NULL) {
+		error = copyin(args->tsp, &lts, sizeof(lts));
+		if (error != 0)
+			return (error);
+		error = linux_to_native_timespec64(&uts, &lts);
+		if (error != 0)
+			return (error);
+		tsp = &uts;
+	} else
+ 		tsp = NULL;
+	error = linux_common_ppoll(td, args->fds, args->nfds, tsp,
+	    args->sset, args->ssize);
+	if (error != 0)
+		return (error);
+	if (tsp != NULL) {
+		error = native_to_linux_timespec64(&lts, tsp);
+		if (error == 0)
+			error = copyout(&lts, args->tsp, sizeof(lts));
+	}
+	return (error);
+}
+#endif /* __i386__ || (__amd64__ && COMPAT_LINUX32) */
+
+static int
+linux_pollin(struct thread *td, struct pollfd *fds, struct pollfd *ufds, u_int nfd)
+{
+	int error;
+	u_int i;
+
+	error = copyin(ufds, fds, nfd * sizeof(*fds));
+	if (error != 0)
+		return (error);
+
+	for (i = 0; i < nfd; i++) {
+		if (fds->events != 0)
+			linux_to_bsd_poll_events(td, fds->fd,
+			    fds->events, &fds->events);
+		fds++;
+	}
+	return (0);
+}
+
+static int
+linux_pollout(struct thread *td, struct pollfd *fds, struct pollfd *ufds, u_int nfd)
+{
+	int error = 0;
+	u_int i, n = 0;
+
+	for (i = 0; i < nfd; i++) {
+		if (fds->revents != 0) {
+			bsd_to_linux_poll_events(fds->revents,
+			    &fds->revents);
+			n++;
+		}
+		error = copyout(&fds->revents, &ufds->revents,
+		    sizeof(ufds->revents));
+		if (error)
+			return (error);
+		fds++;
+		ufds++;
+	}
+	td->td_retval[0] = n;
+	return (0);
 }
 
 int
@@ -2688,3 +2860,23 @@ linux_getcpu(struct thread *td, struct linux_getcpu_args *args)
 		error = copyout(&node, args->node, sizeof(l_int));
 	return (error);
 }
+
+#if defined(__i386__) || defined(__amd64__)
+int
+linux_poll(struct thread *td, struct linux_poll_args *args)
+{
+	struct timespec ts, *tsp;
+
+	if (args->timeout != INFTIM) {
+		if (args->timeout < 0)
+			return (EINVAL);
+		ts.tv_sec = args->timeout / 1000;
+		ts.tv_nsec = (args->timeout % 1000) * 1000000;
+		tsp = &ts;
+	} else
+		tsp = NULL;
+
+	return (linux_common_ppoll(td, args->fds, args->nfds,
+	    tsp, NULL, 0));
+}
+#endif /* __i386__ || __amd64__ */

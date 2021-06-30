@@ -211,8 +211,6 @@ __DEFAULT_NO_OPTIONS = \
     REPRODUCIBLE_BUILD \
     RPCBIND_WARMSTART_SUPPORT \
     SORT_THREADS \
-    SVN \
-    SVNLITE \
     ZONEINFO_LEAPSECONDS_SUPPORT \
 
 # LEFT/RIGHT. Left options which default to "yes" unless their corresponding
@@ -357,7 +355,7 @@ BROKEN_OPTIONS+=NVME
 .endif
 
 .if ${__T} == "aarch64" || ${__T} == "amd64" || ${__T} == "i386" || \
-    ${__T:Mpowerpc64*} != ""
+    ${__T:Mpowerpc64*} != "" || ${__T:Mriscv64*} != ""
 __DEFAULT_YES_OPTIONS+=OPENMP
 .else
 __DEFAULT_NO_OPTIONS+=OPENMP
@@ -409,10 +407,6 @@ MK_TESTS:=	no
 MK_BSDINSTALL:=	no
 .endif
 
-.if ${MK_FILE} == "no"
-MK_SVNLITE:=	no
-.endif
-
 .if ${MK_MAIL} == "no"
 MK_MAILWRAPPER:= no
 MK_SENDMAIL:=	no
@@ -435,8 +429,6 @@ MK_KERBEROS:=	no
 MK_KERBEROS_SUPPORT:=	no
 MK_LDNS:=	no
 MK_PKGBOOTSTRAP:=	no
-MK_SVN:=		no
-MK_SVNLITE:=		no
 MK_ZFS:=	no
 .endif
 
